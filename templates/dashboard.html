@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>FireZone Dashboard</title>
+
+    <style>
+
+        body{
+
+            margin:0;
+            padding:0;
+
+            background:#0f0f0f;
+
+            font-family:Arial;
+
+            color:white;
+
+        }
+
+        .topbar{
+
+            background:black;
+
+            padding:18px;
+
+            text-align:center;
+
+            font-size:28px;
+
+            font-weight:bold;
+
+            color:red;
+
+            box-shadow:0px 0px 15px red;
+
+            position:sticky;
+
+            top:0;
+
+        }
+
+        .wallet{
+
+            background:#161616;
+
+            margin:15px;
+
+            padding:15px;
+
+            border-radius:15px;
+
+            box-shadow:0px 0px 10px cyan;
+
+            display:flex;
+
+            justify-content:space-between;
+
+            align-items:center;
+
+        }
+
+        .wallet button{
+
+            background:red;
+
+            border:none;
+
+            padding:10px 20px;
+
+            border-radius:10px;
+
+            color:white;
+
+            font-size:16px;
+
+        }
+
+        .tabs{
+
+            display:flex;
+
+            overflow:auto;
+
+            padding:10px;
+
+            background:#111;
+
+        }
+
+        .tab{
+
+            color:white;
+
+            background:#1e1e1e;
+
+            padding:10px 20px;
+
+            margin-right:10px;
+
+            border-radius:10px;
+
+            white-space:nowrap;
+
+            font-weight:bold;
+
+        }
+
+        .active{
+
+            background:red;
+
+        }
+
+        .card{
+
+            background:#161616;
+
+            margin:15px;
+
+            border-radius:20px;
+
+            overflow:hidden;
+
+            box-shadow:0px 0px 15px rgba(255,0,0,0.5);
+
+        }
+
+        .banner{
+
+            height:180px;
+
+            background:url('/static/image/bg.jpg');
+
+            background-size:cover;
+
+            background-position:center;
+
+        }
+
+        .content{
+
+            padding:15px;
+
+        }
+
+        .mode{
+
+            display:inline-block;
+
+            background:red;
+
+            padding:5px 15px;
+
+            border-radius:8px;
+
+            font-size:14px;
+
+            font-weight:bold;
+
+        }
+
+        .title{
+
+            margin-top:15px;
+
+            font-size:24px;
+
+            font-weight:bold;
+
+        }
+
+        .prize{
+
+            margin-top:10px;
+
+            color:cyan;
+
+            font-size:22px;
+
+            font-weight:bold;
+
+        }
+
+        .details{
+
+            margin-top:10px;
+
+            line-height:30px;
+
+            color:#ddd;
+
+        }
+
+        .bottom{
+
+            display:flex;
+
+            justify-content:space-between;
+
+            align-items:center;
+
+            margin-top:20px;
+
+        }
+
+        .join{
+
+            background:red;
+
+            border:none;
+
+            padding:12px 25px;
+
+            border-radius:12px;
+
+            color:white;
+
+            font-size:18px;
+
+            font-weight:bold;
+
+            cursor:pointer;
+
+        }
+
+        .players{
+
+            color:lime;
+
+            font-weight:bold;
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="topbar">
+
+        FIREZONE ESPORT
+
+    </div>
+
+    <div class="wallet">
+
+        <h2>Wallet : ₹0</h2>
+
+        <button>
+
+            Recharge
+
+        </button>
+
+    </div>
+
+    <div class="tabs">
+
+        <div class="tab active">
+
+            SOLO BR
+
+        </div>
+
+        <div class="tab">
+
+            DUO BR
+
+        </div>
+
+        <div class="tab">
+
+            SQUAD BR
+
+        </div>
+
+        <div class="tab">
+
+            LONE WOLF
+
+        </div>
+
+        <div class="tab">
+
+            CLASH SQUAD
+
+        </div>
+
+    </div>
+
+    <div class="card">
+
+        <div class="banner"></div>
+
+        <div class="content">
+
+            <div class="mode">
+
+                SOLO BR
+            </div>
+
+            <div class="title">
+
+                FREE FIRE SOLO HUNTER
+            </div>
+
+            <div class="prize">
+
+                ₹7 PER KILL
+            </div>
+
+            <div class="details">
+
+                Entry Fee : ₹8
+                <br>
+                Total Players : 48
+                <br>
+                Map : Bermuda
+                <br>
+                Match Time : 8:00 PM
+
+            </div>
+
+            <div class="bottom">
+
+                <div class="players">
+
+                    Joined : 0/48
+
+                </div>
+
+                <button class="join">
+
+                    ₹8 JOIN
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+
+</html>

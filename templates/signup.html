@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>FireZone Signup</title>
+
+    <style>
+
+        body{
+
+            margin:0;
+            padding:0;
+
+            background:url('/static/image/bg.jpg');
+
+            background-size:cover;
+
+            background-position:center;
+
+            font-family:Arial;
+
+            height:100vh;
+
+            display:flex;
+
+            justify-content:center;
+
+            align-items:center;
+
+        }
+
+        .box{
+
+            width:320px;
+
+            background:rgba(0,0,0,0.8);
+
+            padding:30px;
+
+            border-radius:20px;
+
+            text-align:center;
+
+            box-shadow:0px 0px 20px red;
+
+        }
+
+        h1{
+
+            color:red;
+
+            margin-bottom:30px;
+
+        }
+
+        input{
+
+            width:90%;
+
+            padding:12px;
+
+            margin-top:15px;
+
+            border:none;
+
+            border-radius:10px;
+
+            font-size:16px;
+
+        }
+
+        button{
+
+            width:95%;
+
+            padding:12px;
+
+            margin-top:20px;
+
+            border:none;
+
+            border-radius:10px;
+
+            background:red;
+
+            color:white;
+
+            font-size:18px;
+
+            cursor:pointer;
+
+        }
+
+        a{
+
+            color:white;
+
+            text-decoration:none;
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="box">
+
+        <h1>FIREZONE SIGNUP</h1>
+
+        <form method="POST">
+
+            <input type="text" name="username" placeholder="Username" required>
+
+            <input type="password" name="password" placeholder="Password" required>
+
+            <button type="submit">
+
+                SIGNUP
+
+            </button>
+
+        </form>
+
+        <br>
+
+        <a href="/login">
+
+            Already Have Account?
+
+        </a>
+
+    </div>
+
+</body>
+
+</html>

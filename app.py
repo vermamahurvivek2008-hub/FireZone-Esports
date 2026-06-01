@@ -844,6 +844,10 @@ def home():
 #admin route
 @app.route("/admin_mode")
 def admin_mode():
+    if "user" not in session:
+        return redirect("/login")
+    if session["user"] !="admin":
+        return "ACCESS DENIED"
 
     return render_template_string(STYLE + RULES + """
 
@@ -861,14 +865,7 @@ def admin_mode():
                                        SOLO BR
                                   </a>
                         </div>          
-            </div>
-
-            <div class="mode-title">
-                <a href="/mode/solo br">
-                    ENTER SOLO BR
-                </a>
-            </div>
-        </div>
+                    </div>
 
 
         <!-- DUO BR -->

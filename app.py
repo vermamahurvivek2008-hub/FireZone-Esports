@@ -3,6 +3,7 @@
 #===========================================
 import random
 import requests
+import os
 from flask import Flask
 from flask import flash, render_template_string, request, redirect, url_for, session
 import sqlite3
@@ -49,10 +50,16 @@ def fetch_one(query,params=()):
 # =========================================
 
 app = Flask(__name__)
+UPLOAD_FOLDER = "static/uploads"
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
 app.secret_key = "firezone_secret"
 
 ADMIN_USER = "admin"
 ADMIN_PASS = "vivek123"
+TEAM_USER = "team ff"
+TEAM_PASS = "team2026"
 
 START_HOUR = 8
 END_HOUR = 23
@@ -506,8 +513,20 @@ def auto_format_slot(slot):
         return today_time.strftime("%I:%M PM")
 
     return today_time.strftime("%I:%M AM")
-
-
+#normalize slot
+def normalize_slot(slot):
+    slot = str(slot).strip().upper()
+    try:
+        t = datetime.strptime(slot,"%I:%M:%P")
+        return t.strftime("%I:%M:%P")    
+    except:
+        pass
+    try:
+        t = datetime.strptime(slot,"%I:%M:%P")
+        return t.strptime("%I,%M,%P")
+    except:
+        pass
+    return slot
 # =========================================
 # DATABASE
 # =========================================
@@ -517,6 +536,10 @@ def init_db():
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
     try:
+        c.execute("ALTER TABLE tournament ADD COLUMN match_id INTEGER")
+    except:
+        pass
+    try:
         c.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
     except:
         pass
@@ -524,22 +547,35 @@ def init_db():
     c.execute("""
      CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
+    username TEXT,
     password TEXT,
     phone TEXT UNIQUE,
+              game_name TEXT,
     referral_by TEXT
      )
       """)
-    
+
     try:
         c.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
     except:
         pass
-
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN game_name TEXT")
+    except:
+        pass
+    c.execute("""CREATE TABLE IF NOT EXISTS admin_rooms(id INTEGER PRIMARY KEY AUTOINCREMENT,
+              mode TEXT,
+              slot TEXT,
+              room_id TEXT,
+              password TEXT,
+              UNIQUE(mode,slot)
+              )"""
+              )
+    
     c.execute("""
     CREATE TABLE IF NOT EXISTS wallet(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
+        username TEXT,
         balance INTEGER DEFAULT 0
     )
     """)
@@ -563,9 +599,14 @@ CREATE TABLE IF NOT EXISTS tournament(
         password TEXT,
         status TEXT,
               entry_fee INTEGER,
-              winning_prize INTEGER
+              winning_prize INTEGER,
+              created_by TEXT 
     )
     """)
+    try:
+        c.execute("ALTER TABLE matches ADD COLUMN created_by TEXT")
+    except:
+        pass
     c.execute("""
               CREATE TABLE IF NOT EXISTS custom_join(
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -583,17 +624,49 @@ CREATE TABLE IF NOT EXISTS tournament(
         reward INTEGER
     )
     """)
+    
+    c.execute(""" CREATE TABLE IF NOT EXISTS result_requests(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    mode TEXT,
+    slot TEXT,
+    kills INTEGER,
+    reward INTEGER,
+    screenshot TEXT,
+    status TEXT DEFAULT 'PENDIND')
+    """)
+
+    try:
+        c.execute("ALTER TABLE result_requests ADD COLUMN entry_fee INTEGER DEFAULT 0")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE result_requests ADD COLUMN total_winners INTEGER DEFAULT 1")
+    except:
+        pass
 
     c.execute("""
-    CREATE TABLE IF NOT EXISTS withdrawal_requests(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        amount INTEGER,
-        upi TEXT,
-        status TEXT
-    )
-    """)
-   
+CREATE TABLE IF NOT EXISTS withdrawal_requests(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    amount INTEGER,
+    method TEXT,
+    details TEXT,
+    status TEXT DEFAULT 'PENDING'
+)
+""")
+
+    try:
+      c.execute("ALTER TABLE withdrawal_requests ADD COLUMN method TEXT")
+    except:
+      pass
+
+    try:
+      c.execute("ALTER TABLE withdrawal_requests ADD COLUMN details TEXT")
+    except:
+      pass
+
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS daily_reward(
@@ -611,10 +684,10 @@ CREATE TABLE IF NOT EXISTS tournament(
         reporter TEXT,
         reported_player TEXT,
         reason TEXT,
-        status TEXT            
+        status TEXT
     )
     """)
-    
+
     c.execute("""
               CREATE TABLE IF NOT EXISTS notifications(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -676,6 +749,7 @@ def delete_old_matches():
     c.execute("""
     SELECT id, slot
     FROM matches
+    WHERE status!='COMPLETED'
     """)
 
     matches = c.fetchall()
@@ -686,10 +760,11 @@ def delete_old_matches():
         slot = str(m[1]).strip()
 
         try:
-            if "AM" in slot.upper() or "PM" in slot.upper(): 
-             slot_time = datetime.strptime(slot, "%I:%M %p")
+            if "AM" in slot.upper() or "PM" in slot.upper():
+                slot_time = datetime.strptime(slot, "%I:%M %p")
             else:
                 slot_time = datetime.strptime(slot, "%H:%M")
+
             slot_time = slot_time.replace(
                 year=now.year,
                 month=now.month,
@@ -699,10 +774,11 @@ def delete_old_matches():
             diff = (now - slot_time).total_seconds() / 60
 
             if diff >= 120:
-                c.execute(
-                    "DELETE FROM matches WHERE id=?",
-                    (match_id,)
-                )
+                c.execute("""
+                UPDATE matches
+                SET status='COMPLETED'
+                WHERE id=?
+                """, (match_id,))
 
         except:
             pass
@@ -740,16 +816,16 @@ def can_claim_reward(username):
 
 
 #count function
-
 def get_count(mode, slot):
 
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
 
-    c.execute(
-        "SELECT COUNT(*) FROM tournament WHERE mode=? AND slot=?",
-        (mode, slot)
-    )
+    c.execute("""
+    SELECT COUNT(*)
+    FROM tournament
+    WHERE mode=? AND slot=?
+    """, (mode, slot))
 
     count = c.fetchone()[0]
 
@@ -790,7 +866,7 @@ def get_entry_fee(mode):
 
 @app.route("/")
 def home():
-    delete_old_matches
+    delete_old_matches()
     if "user" not in session:
         return redirect("/login")
 
@@ -799,7 +875,7 @@ def home():
     return render_template_string(STYLE + """
 
     <div class="overlay">
-                                  
+
         <h1>🔥 FIREZONE ESPORTS</h1>
         <div class="mode-card">
            <img src="/static/images/admin mode.png">
@@ -813,11 +889,11 @@ def home():
             <img src="/static/images/user mode.jpg">
                                   <div class="mode-title">
                                   <a href="/user_mode">
-                                   USER CREATE ROOM MODE 
+                                   USER CREATE ROOM MODE
                                   </a>
                                 </div>
-                            </div>                                                        
-    
+                            </div>
+        <h3>balance:{{balance}}</h3>
         <a class="mode-btn" href="/recharge">RECHARGE</a>
 
         <a class="mode-btn" href="/withdrawal">WITHDRAWAL</a>
@@ -828,10 +904,10 @@ def home():
                                   <a class="mode-btn" href="/support">SUPPORT</a>
                                   <a class="mode-btn" href="/report">REPORT PLAYER</a>
                                   <a class="mode-btn" href="/my_matches">MY MATCHES</a>
-         <a class="mode-btn" href="/daily_reward">DAILY_REWARD</a>                         
-        <a class="mode-btn" href="/leaderboard">LEADERBOARD</a>                          
-        
-                                  <a class="mode-btn" href="/notifications">NOTIFICATIONS</a>                  
+         <a class="mode-btn" href="/daily_reward">DAILY_REWARD</a>
+        <a class="mode-btn" href="/leaderboard">LEADERBOARD</a>
+
+                                  <a class="mode-btn" href="/notifications">NOTIFICATIONS</a>
         <a class="mode-btn" href="/logout">LOGOUT</a>
 
     </div>
@@ -846,8 +922,7 @@ def home():
 def admin_mode():
     if "user" not in session:
         return redirect("/login")
-    if session["user"] !="admin":
-        return "ACCESS DENIED"
+
 
     return render_template_string(STYLE + RULES + """
 
@@ -864,7 +939,7 @@ def admin_mode():
                                   <a href="/mode/solo br">
                                        SOLO BR
                                   </a>
-                        </div>          
+                        </div>
                     </div>
 
 
@@ -878,16 +953,8 @@ def admin_mode():
 
                 DUO BR
                                   </a>
-                        </div>          
+                        </div>
             </div>
-
-            <div class="mode-title">
-                <a href="/mode/duo br">
-                    ENTER DUO BR
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- 1V1 -->
@@ -900,15 +967,8 @@ def admin_mode():
 
             1v1 CS CHALLENGE
                                   </a>
-                        </div>          
+                        </div>
             </div>
-            <div class="mode-title">
-                <a href="/mode/1v1 cs challenge">
-                    ENTER 1V1 CS CHALLENGE
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- 2V2 -->
@@ -921,15 +981,8 @@ def admin_mode():
 
             2v2 CS CHALLENGE
                                   </a>
-                        </div>          
+                        </div>
             </div>
-            <div class="mode-title">
-                <a href="/mode/2v2 cs">
-                    ENTER 2V2 CS
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- 4V4 -->
@@ -942,15 +995,8 @@ def admin_mode():
 
             4v4 CS CHALLENGE
                                   </a>
-                        </div>          
+                        </div>
             </div>
-            <div class="mode-title">
-                <a href="/mode/4v4 cs">
-                    ENTER 4V4 CS
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- LONE WOLF -->
@@ -963,15 +1009,8 @@ def admin_mode():
 
             LONE WOLF
                                   </a>
-                        </div>          
+                        </div>
             </div>
-            <div class="mode-title">
-                <a href="/mode/lone wolf">
-                    ENTER LONE WOLF
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- SNIPER -->
@@ -981,19 +1020,11 @@ def admin_mode():
             <img src="/static/images/sniper only br.png">
                                   <div class="mode-title">
                                   <a href="/mode/sniper only br">
-                                
+
                 SNIPER ONLY BR
                                   </a>
-                            </div>      
+                            </div>
             </div>
-
-            <div class="mode-title">
-                <a href="/mode/sniper only br">
-                    ENTER SNIPER MODE
-                </a>
-            </div>
-
-        </div>
 
 
         <!-- BOOYAH -->
@@ -1003,19 +1034,11 @@ def admin_mode():
             <img src="/static/images/booyah only br.png">
                                   <div class="mode-title">
                                   <a href="/mode/booyah only br">
-                                
+
                 BOOYAH ONLY BR
                                   </a>
-                            </div>      
+                            </div>
             </div>
-
-            <div class="mode-title">
-                <a href="/mode/booyah only br">
-                    ENTER BOOYAH MODE
-                </a>
-            </div>
-
-        </div>
                                   <a class="mode-btn"
                                   href="/create_free_match">
                                   CREATE FREE MATCH
@@ -1027,7 +1050,7 @@ def admin_mode():
     </div>
 
     """
-    ) 
+    )
 #admin result route
 @app.route("/admin/results")
 @admin_required
@@ -1037,59 +1060,152 @@ def admin_results():
     c = conn.cursor()
 
     c.execute("""
-    SELECT id, username, mode, slot
-    FROM tournament
+    SELECT id, mode, slot, entry_fee, winning_prize, status
+    FROM matches
     ORDER BY id DESC
     """)
 
     data = c.fetchall()
-
     conn.close()
 
     return render_template_string(STYLE + """
     <div class="overlay">
 
-        <h1>🏆 AUTO RESULT SYSTEM</h1>
+        <h1>🏆 ADMIN MATCH RESULTS</h1>
 
-        {% for t in data %}
+        {% for m in data %}
+        <div class="mode-card">
 
-        <div class="info">
+            🎮 {{m[1].upper()}} <br><br>
+            ⏰ Slot : {{m[2]}} <br><br>
+            💸 Entry Fee : ₹{{m[3]}} <br><br>
 
-            👤 Username : {{t[1]}}
+            {% if "cs" in m[1] or m[1] == "lone wolf" %}
+                🏆 Winning Prize : ₹{{m[4]}}
+            {% else %}
+                🔫 Per Kill Reward : ₹{{m[4]}}
+            {% endif %}
 
             <br><br>
+            📢 Status : {{m[5]}} <br><br>
 
-            🎮 Mode : {{t[2]}}
-
-            <br><br>
-
-            🎯 Slot : {{t[3]}}
-
-            <br><br>
-
-            <form method="POST"
-            action="/admin/add_kills/{{t[0]}}">
-
-                <input
-                type="number"
-                name="kills"
-                placeholder="Enter Kills"
-                required>
-
-                <br><br>
-
-                <button type="submit">
-                SUBMIT RESULT
-                </button>
-
-            </form>
+            <a class="mode-btn" href="/admin/match_results/{{m[0]}}">
+                ENTER ALL PLAYER KILLS
+            </a>
 
         </div>
-
         {% endfor %}
+
+        <a class="mode-btn" href="/admin/dashboard">BACK</a>
 
     </div>
     """, data=data)
+
+@app.route("/admin/match_results/<int:match_id>", methods=["GET", "POST"])
+@admin_required
+def admin_match_results(match_id):
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT mode, slot, entry_fee, winning_prize
+    FROM matches
+    WHERE id=?
+    """, (match_id,))
+
+    match = c.fetchone()
+
+    if not match:
+        conn.close()
+        return "❌ Match not found"
+
+    mode = match[0]
+    slot = match[1]
+    entry_fee = match[2]
+    winning_prize = match[3]
+
+    if request.method == "POST":
+
+        usernames = request.form.getlist("username")
+        kills_list = request.form.getlist("kills")
+
+        for i in range(len(usernames)):
+
+            username = usernames[i]
+            kills = int(kills_list[i])
+
+            if "cs" in mode or mode == "lone wolf":
+                reward = winning_prize
+            else:
+                reward = kills * winning_prize
+
+            c.execute("""
+            INSERT INTO results(username, mode, slot, kills, reward)
+            VALUES(?,?,?,?,?)
+            """, (username, mode, slot, kills, reward))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/admin/results")
+
+    c.execute("""
+    SELECT tournament.username, users.game_name
+    FROM tournament
+    LEFT JOIN users
+    ON tournament.username = users.username
+    WHERE tournament.match_id=?
+    ORDER BY tournament.id ASC
+    """, (match_id,))
+
+    players = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>🏆 ENTER RESULTS</h1>
+
+            🎮 {{mode.upper()}} <br><br>
+            ⏰ {{slot}} <br><br>
+            💸 Entry Fee : ₹{{entry_fee}} <br><br>
+
+            {% if "cs" in mode or mode == "lone wolf" %}
+                🏆 Winning Prize : ₹{{winning_prize}}
+            {% else %}
+                🔫 Per Kill Reward : ₹{{winning_prize}}
+            {% endif %}
+
+            <br><br>
+
+            <form method="POST">
+
+                {% for p in players %}
+                <div class="info">
+                    👤 {{p[0]}} <br>
+                    🎮 {{p[1]}} <br><br>
+
+                    <input type="hidden" name="username" value="{{p[0]}}">
+                    <input name="kills" type="number" placeholder="Kills" required>
+                </div>
+                {% endfor %}
+
+                {% if players|length > 0 %}
+                <button>SUBMIT ALL RESULTS</button>
+                {% endif %}
+
+            </form>
+
+            <br>
+            <a class="mode-btn" href="/admin/results">BACK</a>
+
+        </div>
+    </div>
+    """, players=players, mode=mode, slot=slot,
+       entry_fee=entry_fee, winning_prize=winning_prize)
+
 #auto reward route
 @app.route("/admin/add_kills/<int:id>", methods=["POST"])
 @admin_required
@@ -1144,7 +1260,7 @@ def add_kills(id):
     conn.close()
 
     return redirect("/admin/results")
-                         
+
 #user route
 @app.route("/user_mode")
 def user_mode():
@@ -1158,7 +1274,7 @@ def user_mode():
         <br><br>
 
         <div class="mode-card">
-                                  
+
 
             <h2>🌍 PUBLIC TOURNAMENTS</h2>
 
@@ -1200,118 +1316,128 @@ def create_free_match():
 
     if request.method == "POST":
 
-        mode = request.form["mode"]
-
+        mode = "solo br"
         slot = auto_format_slot(request.form["slot"])
 
-        winning_prize = request.form["winning_prize"]
-
-
         conn = sqlite3.connect("database.db")
-
         c = conn.cursor()
 
         c.execute("""
-
         INSERT INTO matches(
-
             mode,
             slot,
             status,
             entry_fee,
-            winning_prize
-
+            winning_prize,
+            room_id,
+            password
         )
-
-        VALUES(?,?,?,?,?)
-
-        """,(
-
-            mode,
-            slot,
-            "UPCOMING",
-            0,
-            winning_prize
-
+        VALUES(?,?,?,?,?,?,?)
+        """, (
+            (
+    mode,
+slot,
+"UPCOMING",
+0,
+0,
+"",
+""
+)
         ))
 
         conn.commit()
-
         conn.close()
 
-
-        return render_template_string(STYLE + """
-
-        <div class="overlay">
-
-            <div class="box">
-
-                <h1>🚨 FREE MATCH CREATED</h1>
-
-                <br><br>
-
-                <h2>JOIN FAST ⚡</h2>
-
-                <br>
-
-                🎮 Mode : {{mode.upper()}}
-
-                <br><br>
-
-                💸 Entry Fee : FREE
-
-                <br><br>
-
-                🏆 Prize : ₹{{winning_prize}}
-
-                <br><br>
-
-                LIMITED SLOTS AVAILABLE 🔥
-
-            </div>
-
-        </div>
-
-        """,
-
-        mode=mode,
-
-        winning_prize=winning_prize
-        )
-
+        return "✅ FREE MATCH CREATED"
 
     return render_template_string(STYLE + """
-
     <div class="overlay">
-
         <div class="box">
 
             <h1>🎁 CREATE FREE MATCH</h1>
 
-            <form method="POST">
+            <h3>🏆 1st = ₹10</h3>
+            <h3>🥈 2nd = ₹8</h3>
+            <h3>🥉 3rd = ₹5</h3>
 
-                <input name="mode"
-                placeholder="Mode"
-                required>
+            <form method="POST">
 
                 <input name="slot"
                 placeholder="Slot"
                 required>
 
-                <input name="winning_prize"
-                placeholder="Prize"
-                required>
+                
 
-                <button>CREATE</button>
+                <button>CREATE FREE MATCH</button>
 
             </form>
 
         </div>
-
     </div>
-
     """)
+@app.route("/admin/update_room/<int:match_id>", methods=["GET","POST"])
+@admin_required
+def admin_update_room(match_id):
 
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    if request.method == "POST":
+
+        room_id = request.form["room_id"]
+        password = request.form["password"]
+
+        c.execute("""
+        UPDATE matches
+        SET room_id=?, password=?
+        WHERE id=?
+        """, (room_id, password, match_id))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/admin_dashboard")
+
+    c.execute("""
+    SELECT mode, slot, room_id, password
+    FROM matches
+    WHERE id=?
+    """, (match_id,))
+
+    match = c.fetchone()
+    conn.close()
+
+    if not match:
+        return "❌ Match not found"
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>🔑 UPDATE ROOM</h1>
+
+            🎮 {{match[0].upper()}} <br><br>
+            ⏰ {{match[1]}} <br><br>
+
+            <form method="POST">
+
+                <input name="room_id"
+                placeholder="Room ID"
+                value="{{match[2]}}"
+                required>
+
+                <input name="password"
+                placeholder="Password"
+                value="{{match[3]}}"
+                required>
+
+                <button>UPDATE ROOM</button>
+
+            </form>
+
+        </div>
+    </div>
+    """, match=match)
 #public tournament page
 @app.route("/public_tournaments")
 def public_tournaments():
@@ -1352,16 +1478,18 @@ def free_matches():
     c = conn.cursor()
 
     c.execute("""
-
-    SELECT id,mode,slot,winning_prize
-
-    FROM matches
-
-    WHERE entry_fee=0
-
-    ORDER BY id DESC
-
-    """)
+SELECT matches.id,
+       matches.mode,
+       matches.slot,
+       matches.winning_prize,
+       COUNT(tournament.id)
+FROM matches
+LEFT JOIN tournament
+ON matches.id = tournament.match_id
+WHERE matches.entry_fee=0
+GROUP BY matches.id
+ORDER BY matches.id DESC
+""")
 
     data = c.fetchall()
 
@@ -1409,16 +1537,32 @@ def free_matches():
 
             <br><br>
 
-            🏆 Prize : ₹{{m[3]}}
+            🏆 1st Prize : ₹10
+<br><br>
 
-            <br><br>
+🥈 2nd Prize : ₹8
+<br><br>
 
-            <a class="mode-btn"
-            href="/user_custom_room/{{m[0]}}">
+🥉 3rd Prize : ₹5
+<br><br>
 
-            JOIN MATCH
+👥 Players : {{m[4]}} / 48
+<br><br>
 
-            </a>
+{% if m[4] < 48 %}
+
+<a class="mode-btn"
+href="/user_custom_room/{{m[0]}}">
+
+JOIN MATCH
+
+</a>
+
+{% else %}
+
+<h3>❌ MATCH FULL</h3>
+
+{% endif %}
 
         </div>
 
@@ -1439,7 +1583,7 @@ def join_custom_rooms():
 
     c.execute("""
 
-    SELECT id,mode,slot,entry_fee,winning_prize,status
+    SELECT id,mode,slot,entry_fee,winning_prize,status,created_by
     FROM matches
     ORDER BY id DESC
 
@@ -1472,17 +1616,21 @@ def join_custom_rooms():
             <br><br>
 
             ⏰ Slot : {{m[2]}}
-                                  
+
                                   status : {{m[5]}}
                                   <br><br>
-                                  <a class="mode-btn" href="/custom_room/{{m[0]}}">
+                                  <a class="mode-btn" href="/join_match/{{m[0]}}">
                                   JOIN TOURNAMENT
                                   </a>
-
-        </div>
-                                  <br>
-
-        {% endfor %}
+                                  {% if session.get("user") == m[6] %}
+                                  <a class="mode-btn" href="/creator/add_room/{{m[0]}}">
+                                  ADD ROOM ID / PASSWORD
+                                  </a>
+                                  <a class="mode-btn" href="/submit_result/{{m[0]}}">
+                                  SUBMIT RESULT
+                                  </a>
+                                  {% endif %}
+                                  {% endfor %}
                                   <a class="mode-btn" href="/user_mode">
                                   BACK
                                   </a>
@@ -1496,7 +1644,7 @@ def join_custom_rooms():
 def custom_room(id):
     if "user" not in session:
         return redirect("/login")
-    
+
     conn = sqlite3.connect("database.db")
 
     c = conn.cursor()
@@ -1512,6 +1660,19 @@ def custom_room(id):
     """,(id,))
 
     data = c.fetchone()
+    c.execute("""
+SELECT tournament.username, users.game_name
+FROM tournament
+LEFT JOIN users
+ON tournament.username = users.username
+WHERE tournament.match_id=?
+ORDER BY tournament.id ASC
+""", (id,))
+
+    players = c.fetchall()
+    username = session["user"]
+    c.execute("""SELECT id FROM tournament WHERE username=? AND match_id=?""",(username,id))
+    joined = c.fetchone()
 
     conn.close()
 
@@ -1546,10 +1707,29 @@ def custom_room(id):
             <br><br>
 
             🏆 Prize : ₹{{winning_prize}}
+                                  <br><br>
+
+                                  <h3>👥 JOINED PLAYERS</h3>
+
+                                  {% if players|length == 0 %}
+                                  No Players Joined Yet
+                                  {% endif %}
+
+                                  {% for p in players %}
+                                  <div class="info">
+                                  👤 {{p[0]}} - {{p[1]}}
+                                  </div>
+                                  {% endfor %}
              <br><br>
-                                  <a class="mode-btn" href="/join/{{mode}}/{{slot}}">
+                                  {% if joined %}
+                                  <h3> JOINED </h3>
+                                  <a class="mode-btn" href="/my_matches">
+                                  SEE DETAILS IN MY MATCHES </a>
+                                  {% else %}
+                                  <a class="mode-btn" href="/join_match/{{id}}">
                                   JOIN TOURNAMENT
                                   </a>
+                                  {% endif %}
                                   <a class="mode-btn" href="/join_custom_rooms">
                                   BACK
                                   </a>
@@ -1558,7 +1738,87 @@ def custom_room(id):
     </div>
 
     """,mode=mode,slot=slot,status=status, entry_fee=entry_fee,winning_prize=winning_prize,
-      data=data)
+      data=data,id=id,joined=joined,players=players)
+#join match id
+@app.route("/join_match/<int:match_id>")
+def join_match(match_id):
+
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT mode, slot, entry_fee
+    FROM matches
+    WHERE id=?
+    """, (match_id,))
+
+    match = c.fetchone()
+
+    if not match:
+        conn.close()
+        return "❌ Match not found"
+
+    mode = match[0]
+    slot = match[1]
+    entry_fee = match[2]
+
+    c.execute("""
+    SELECT id
+    FROM tournament
+    WHERE username=? AND match_id=?
+    """, (username, match_id))
+
+    already_joined = c.fetchone()
+
+    if already_joined:
+        conn.close()
+        return redirect(f"/custom_room/{match_id}")
+
+    c.execute("""
+    SELECT COUNT(*)
+    FROM tournament
+    WHERE match_id=?
+    """, (match_id,))
+
+    total_players = c.fetchone()[0]
+
+    if total_players >= 48:
+        conn.close()
+        return "❌ MATCH FULL"
+
+    c.execute("""
+    SELECT balance
+    FROM wallet
+    WHERE username=?
+    """, (username,))
+
+    bal = c.fetchone()
+
+    if not bal or bal[0] < entry_fee:
+        conn.close()
+        return "❌ LOW BALANCE"
+
+    c.execute("""
+    UPDATE wallet
+    SET balance = balance - ?
+    WHERE username=?
+    """, (entry_fee, username))
+
+    c.execute("""
+    INSERT INTO tournament(username, mode, slot, status, match_id)
+    VALUES(?,?,?,?,?)
+    """, (username, mode, slot, "UPCOMING", match_id))
+
+    conn.commit()
+    conn.close()
+
+    return redirect(f"/custom_room/{match_id}")
+
 #create room
 @app.route("/create_room")
 def create_room_select():
@@ -1676,11 +1936,12 @@ def submit_room():
         slot,
         status,
         entry_fee,
-        winning_prize
+        winning_prize,
+              created_by
 
     )
 
-    VALUES(?,?,?,?,?)
+    VALUES(?,?,?,?,?,?)
 
     """, (
 
@@ -1688,11 +1949,13 @@ def submit_room():
         slot,
         "UPCOMING",
         entry_fee,
-        winning_prize
+        winning_prize,
+        username
 
     ))
-
+    
     conn.commit()
+    match_id = c.lastrowid
     conn.close()
 
     return render_template_string(STYLE + RULES + """
@@ -1737,6 +2000,10 @@ def submit_room():
             </a>
 
             <br><br>
+                                  <a class="mode-btn" href="/creator/add_room/{{match_id}}">
+                                  ADD ROOM ID /PASSWORD
+                                  </a>
+                                  <br><br>
 
             <a class="mode-btn"
                href="/user_mode">
@@ -1754,11 +2021,12 @@ def submit_room():
     mode=mode,
     entry_fee=entry_fee,
     winning_prize=winning_prize,
-    slot=slot
+    slot=slot,
+    match_id=match_id
     )
 
 #delete tournament
-@app.route("/delete_tournament/<int:id>")
+@app.route("/delete_tournaments/<int:id>")
 def delete_tournament(id):
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
@@ -1766,7 +2034,7 @@ def delete_tournament(id):
     conn.commit()
     conn.close()
     return redirect("/admin")
-#public tournament list 
+#public tournament list
 
 @app.route("/join_room")
 def join_room():
@@ -1774,11 +2042,10 @@ def join_room():
     conn = sqlite3.connect("database.db")
 
     c = conn.cursor()
-
     c.execute("""
 
     SELECT id,mode,slot,status,
-    entry_fee,winning_prize
+    entry_fee,winning_prize,created_by
 
     FROM matches
 
@@ -1835,6 +2102,11 @@ def join_room():
             JOIN TOURNAMENT
 
             </a>
+                                  {% if session_user == m[6] %}
+                                  <a class="mode-btn" href="/creator/add_room/{{m[0]}}">
+                                  ADD ROOM ID /PASSWORD
+                                  </a>
+                                  {% endif %}
 
         </div>
 
@@ -1844,7 +2116,8 @@ def join_room():
 
     </div>
 
-    """, matches=matches)
+    """, matches=matches,
+    session_user=session.get("user"))
 
 #room detail page
 @app.route("/user_custom_room/<int:id>")
@@ -1904,17 +2177,25 @@ def user_custom_room(id):
 
             <br><br>
 
-            {% if "cs" in mode or mode == "lone wolf" %}
+            {% if entry_fee == 0 %}
 
-                🏆 Winning Prize : ₹{{winning_prize}}
-
-            {% else %}
-
-                🔫 Per Kill Reward : ₹{{winning_prize}}
-
-            {% endif %}
-
+            🏆 1st Prize : ₹10
             <br><br>
+
+            🥈 2nd Prize : ₹8
+            <br><br>
+
+            🥉 3rd Prize : ₹5
+
+            {% elif "cs" in mode or mode == "lone wolf" %}
+
+           🏆 Winning Prize : ₹{{winning_prize}}
+
+           {% else %}
+
+         🔫 Per Kill Reward : ₹{{winning_prize}}
+
+           {% endif %}
 
             📢 Status : {{status}}
 
@@ -2017,7 +2298,59 @@ def add_room_details(id):
 
     """)
 
+#creator roiute
+@app.route("/creator/add_room/<int:id>", methods=["GET","POST"])
+def creator_add_room(id):
 
+    if "admin" not in session and "team" not in session and "user" not in session:
+        return redirect("/login")
+
+    username = session.get("user")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("SELECT created_by FROM matches WHERE id=?", (id,))
+    data = c.fetchone()
+    if "team" not in session and "admin" not in session:   
+     if  not data or data[0] != username:
+        conn.close()
+        return "❌ You are not allowed to add room details"
+
+    if request.method == "POST":
+
+        room_id = request.form["room_id"]
+        password = request.form["password"]
+
+        c.execute("""
+        UPDATE matches
+        SET room_id=?, password=?
+        WHERE id=? AND created_by=?
+        """, (room_id, password, id, username))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/join_room")
+
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+            <h1>🎮 ADD ROOM ID / PASSWORD</h1>
+
+            <form method="POST">
+                <input name="room_id" placeholder="Room ID" required>
+                <input name="password" placeholder="Room Password" required>
+                <button>SAVE ROOM</button>
+            </form>
+
+            <br>
+            <a class="mode-btn" href="/join_room">BACK</a>
+        </div>
+    </div>
+    """)
 
 
 # =========================================
@@ -2032,18 +2365,17 @@ def signup():
         username = request.form["username"]
         password = hashlib.sha256(request.form["password"].encode()).hexdigest()
         phone = request.form["phone"]
+        game_name = request.form["game_name"]
         referral = request.form["referral"]
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
-        c.execute("""
-                  SELECT phone FROM users WHERE phone=?""",(phone,))
-        phone_data = c.fetchone()
-        if phone_data:
-            conn.close()
-            return " phone number already registered"
+        c.execute("SELECT phone FROM users WHERE phone=?", (phone,))
+        data = c.fetchone()
+        if data:
+            return "❌ Phone number already registered"
         referral = request.form["referral"]
 
-        
+
 
         # 🔥 check user already exists
         c.execute("SELECT username FROM users WHERE username=?", (username,))
@@ -2051,25 +2383,24 @@ def signup():
 
         if data:
             return "❌ Username already exists"
-        
+
 
 
         otp = random.randint(100000, 999999)
-        
+
 
         session["signup_data"] = {
         "username": username,
         "password": password,
         "phone": phone,
+        game_name:game_name,
         "referral": referral,
         "otp": otp
         }
+        c.execute("""INSERT INTO users (username,password,phone,game_name,referral_by)
+                  VALUES(?,?,?,?,?)""",(username,password,phone,game_name,referral))
 
-        send_otp(phone,otp)
-        return redirect("/verify_otp")
-
-
-        # wallet safe insert
+        #wallet create
         c.execute("""
             INSERT OR IGNORE INTO wallet(username,balance)
             VALUES(?,0)
@@ -2096,6 +2427,7 @@ def signup():
                 <input name="password" type="password" placeholder="Password" required>
 
                 <input name="phone" placeholder="Phone Number" required>
+                                  <input name="game_name" placeholder="free fire game name" required>
                                   <input name="referral" placeholder="referral username(optional)">
 
                 <button>SIGNUP</button>
@@ -2132,9 +2464,9 @@ def verify_otp():
         c = conn.cursor()
 
         c.execute("""
-        INSERT INTO users(username,password,phone,referral_by)
-        VALUES(?,?,?,?)
-        """,(data["username"],data["password"],data["phone"],data["referral"]))
+        INSERT INTO users(username,password,phone,game_name,referral_by)
+        VALUES(?,?,?,?,?)
+        """,(data["username"],data["password"],data["phone"],data["game_name"],data["referral"]))
 
         c.execute("""
         INSERT OR IGNORE INTO wallet(username,balance)
@@ -2168,7 +2500,7 @@ def verify_otp():
 # =========================================
 @app.route("/login", methods=["GET","POST"])
 def login():
-      
+
 
 
     if request.method == "POST":
@@ -2181,12 +2513,12 @@ def login():
 
         c.execute("""
             SELECT * FROM users
-            WHERE username=? AND password=?
+            WHERE username=? AND password=? AND IFNULL(banned,0)=0
         """, (username,password))
 
         user = c.fetchone()
         conn.close()
-    
+
         if user:
             session["user"] = username
             return redirect("/")
@@ -2250,6 +2582,520 @@ def admin():
         </div>
     </div>
     """)
+#taem route
+#team login
+@app.route("/team_login", methods=["GET","POST"])
+def team_login():
+
+    if request.method == "POST":
+
+        user = request.form["user"]
+        password = request.form["pass"]
+
+        if user == TEAM_USER and password == TEAM_PASS:
+            session["team"] = True
+            return redirect("/team")
+
+        return "❌ Wrong Team Login"
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>👥 TEAM LOGIN</h1>
+
+            <form method="POST">
+
+                <input name="user"
+                placeholder="Username"
+                required>
+
+                <input name="pass"
+                type="password"
+                placeholder="Password"
+                required>
+
+                <button>LOGIN</button>
+
+            </form>
+
+        </div>
+    </div>
+    """)
+#team panel
+@app.route("/team")
+def team_panel():
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>👥 TEAM PANEL</h1>
+
+        <a class="mode-btn" href="/team/result_requests">
+            🏆 PENDING RESULTS
+        </a>
+
+        <br><br>
+
+        <a class="mode-btn" href="/team/matches">
+            🎮 ADD ROOM ID / PASSWORD
+        </a>
+
+        <br><br>
+
+        <a class="mode-btn" href="/team/reports">
+            🚫 PLAYER REPORTS
+        </a>
+
+        <br><br>
+
+        <a class="mode-btn" href="/team/tasks">
+            📋 MY TASKS
+        </a>
+
+        <br><br>
+
+        <a class="mode-btn" href="/team_logout">
+            🚪 LOGOUT
+        </a>
+
+    </div>
+    """)
+# team approve result
+@app.route("/team/result_requests")
+def team_result_requests():
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id, username, mode, slot, kills, reward, screenshot, status
+    FROM result_requests
+    WHERE status='PENDING'
+    ORDER BY id DESC
+    """)
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>🏆 TEAM PENDING RESULTS</h1>
+
+        {% for r in data %}
+        <div class="mode-card">
+
+            👤 {{r[1]}} <br><br>
+            🎮 {{r[2]}} <br><br>
+            ⏰ {{r[3]}} <br><br>
+            🔫 Kills : {{r[4]}} <br><br>
+            💰 Reward : ₹{{r[5]}} <br><br>
+
+            <img src="/{{r[6]}}" width="250">
+            <br><br>
+
+            <a class="mode-btn" href="/team/approve_result/{{r[0]}}">
+                APPROVE
+            </a>
+
+            <a class="mode-btn" href="/team/update_result/{{r[0]}}">
+                UPDATE RESULT
+            </a>
+
+        </div>
+        <br>
+        {% endfor %}
+
+        <a class="mode-btn" href="/team">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/team/update_result/<int:id>", methods=["GET", "POST"])
+def team_update_result(id):
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    if request.method == "POST":
+
+        kills = int(request.form["kills"])
+        total_winners = int(request.form.get("total_winners", 1))
+
+        if total_winners <= 0:
+            total_winners = 1
+
+        c.execute("""
+        SELECT mode, entry_fee
+        FROM result_requests
+        WHERE id=?
+        """, (id,))
+
+        data = c.fetchone()
+
+        if not data:
+            conn.close()
+            return "❌ Result not found"
+
+        mode = data[0].lower()
+        entry_fee = float(data[1])
+
+        if "cs" in mode or "lone wolf" in mode:
+            reward = (entry_fee * 80 / 100) / total_winners
+        else:
+            reward = kills * (entry_fee * 87.5 / 100)
+        reward = round(reward, 2)
+
+        c.execute("""
+        UPDATE result_requests
+        SET kills=?, reward=?, total_winners=?
+        WHERE id=?
+        """, (kills, reward,total_winners,id))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/team/result_requests")
+
+    c.execute("""
+    SELECT result_requests.username,
+           users.game_name,
+           result_requests.mode,
+           result_requests.slot,
+           result_requests.kills,
+           result_requests.reward,
+           result_requests.entry_fee
+    FROM result_requests
+    LEFT JOIN users
+    ON result_requests.username = users.username
+    WHERE result_requests.id=?
+    """, (id,))
+
+    r = c.fetchone()
+    conn.close()
+
+    if not r:
+        return "❌ Result not found"
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>✏️ UPDATE RESULT</h1>
+
+            👤 User : {{r[0]}} <br><br>
+            🎮 Game Name : {{r[1]}} <br><br>
+            🎮 Mode : {{r[2]}} <br><br>
+            ⏰ Slot : {{r[3]}} <br><br>
+            💵 Entry Fee : ₹{{r[6]}} <br><br>
+            💰 Current Reward : ₹{{r[5]}} <br><br>
+
+            <form method="POST">
+                🔫 Kills:
+                <input name="kills" type="number" value="{{r[4]}}" required>
+                <br><br>
+
+                🏆 Total Winners:
+                <input name="total_winners" type="number" value="1" required>
+                <br><br>
+
+                <button class="mode-btn">UPDATE RESULT</button>
+            </form>
+
+            <br>
+            <a class="mode-btn" href="/team/result_requests">BACK</a>
+
+        </div>
+    </div>
+    """, r=r)
+
+#team result
+@app.route("/team/matches")
+def team_matches():
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    modes = [
+        "solo br",
+        "duo br",
+        "1v1 cs challenge",
+        "2v2 cs challenge",
+        "4v4 cs challenge",
+        "lone wolf",
+        "sniper only br",
+        "booyah only br"
+    ]
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>🎮 SELECT MODE</h1>
+
+        {% for mode in modes %}
+        <div class="mode-card">
+            <h2>{{mode.upper()}}</h2>
+
+            <a class="mode-btn" href="/team/matches/{{mode}}">
+                OPEN MATCHES
+            </a>
+        </div>
+        <br>
+        {% endfor %}
+
+        <a class="mode-btn" href="/team">BACK</a>
+
+    </div>
+    """, modes=modes)
+
+#team matches mode
+@app.route("/team/matches/<mode>")
+def team_mode_matches(mode):
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    slots = generate_slots()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>{{mode.upper()}} MATCHES</h1>
+
+        {% for slot in slots %}
+        <div class="mode-card">
+
+            🎮 {{mode.upper()}} <br><br>
+            ⏰ {{slot}} <br><br>
+
+            <a class="mode-btn" href="/team/admin_add_room_by_slot/{{mode}}/{{slot}}">
+                ADD / UPDATE ROOM
+            </a>
+
+        </div>
+        <br>
+        {% endfor %}
+
+        <a class="mode-btn" href="/team/matches">BACK</a>
+
+    </div>
+    """, mode=mode, slots=slots)
+
+@app.route("/team/admin_add_room_by_slot/<mode>/<path:slot>", methods=["GET","POST"])
+def team_admin_add_room_by_slot(mode, slot):
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    if request.method == "POST":
+        room_id = request.form["room_id"]
+        password = request.form["password"]
+
+        c.execute("""
+        INSERT OR REPLACE INTO admin_rooms(mode, slot, room_id, password)
+        VALUES(?,?,?,?)
+        """, (mode, slot, room_id, password))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/team/matches")
+
+    c.execute("""
+    SELECT room_id, password
+    FROM admin_rooms
+    WHERE mode=? AND slot=?
+    """, (mode, slot))
+
+    data = c.fetchone()
+    conn.close()
+
+    room_id = data[0] if data else ""
+    password = data[1] if data else ""
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+            <h1>🎮 UPDATE ADMIN ROOM</h1>
+
+            <h2>{{mode.upper()}}</h2>
+            ⏰ Slot : {{slot}}
+            <br><br>
+
+            <form method="POST">
+                <input name="room_id" placeholder="Room ID" value="{{room_id}}" required>
+                <input name="password" placeholder="Password" value="{{password}}" required>
+                <button>UPDATE ROOM</button>
+            </form>
+        </div>
+    </div>
+    """, mode=mode, slot=slot, room_id=room_id, password=password)
+
+
+#team add room id admin
+@app.route("/team/admin_add_room/<int:id>", methods=["GET","POST"])
+def team_admin_add_room(id):
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    if request.method == "POST":
+
+        room_id = request.form["room_id"]
+        password = request.form["password"]
+
+        c.execute("""
+        UPDATE admin_rooms
+        SET room_id=?, password=?
+        WHERE id=?
+        """, (room_id, password, id))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/team/matches")
+
+    c.execute("""
+    SELECT mode, slot, room_id, password
+    FROM admin_rooms
+    WHERE id=?
+    """, (id,))
+
+    data = c.fetchone()
+    conn.close()
+
+    if not data:
+        return "❌ Admin match not found"
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>🎮 UPDATE ADMIN ROOM</h1>
+
+            <h2>{{data[0].upper()}}</h2>
+
+            ⏰ Slot : {{data[1]}}
+            <br><br>
+
+            <form method="POST">
+
+                <input name="room_id"
+                       placeholder="Room ID"
+                       value="{{data[2] or ''}}"
+                       required>
+
+                <input name="password"
+                       placeholder="Password"
+                       value="{{data[3] or ''}}"
+                       required>
+
+                <button>UPDATE ROOM</button>
+
+            </form>
+
+        </div>
+    </div>
+    """, data=data)
+
+#team report
+@app.route("/team/reports")
+def team_reports():
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id, reporter, reported_player, reason, status
+    FROM reports
+    ORDER BY id DESC
+    """)
+
+    reports = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>🚫 TEAM PLAYER REPORTS</h1>
+
+        {% for r in reports %}
+        <div class="mode-card">
+
+            👤 Reporter : {{r[1]}} <br><br>
+            🚫 Reported : {{r[2]}} <br><br>
+            📝 Reason : {{r[3]}} <br><br>
+            📢 Status : {{r[4]}} <br><br>
+
+        </div>
+        <br>
+        {% endfor %}
+
+        <a class="mode-btn" href="/team">BACK</a>
+    </div>
+    """, reports=reports)
+
+#team task
+@app.route("/team/tasks")
+def team_tasks():
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>📋 MY TASKS</h1>
+
+        <div class="info">
+
+            🏆 Verify pending result screenshots
+
+            <br><br>
+
+            🎮 Add room ID and password before match
+
+            <br><br>
+
+            🚫 Review player reports
+
+            <br><br>
+
+            ⚠️ Do not approve withdrawals
+
+            <br><br>
+
+            ⚠️ Do not edit wallet balances
+
+        </div>
+
+    </div>
+    """)
+#team logout
+@app.route("/team_logout")
+def team_logout():
+
+    session.pop("team", None)
+
+    return redirect("/team_login")
+
 
 # admin result declare
 @app.route("/admin/add_result", methods=["GET","POST"])
@@ -2263,11 +3109,11 @@ def add_result():
         mode = request.form["mode"]
         slot = request.form["slot"]
         kills = int(request.form["kills"])
-        
+
         if "cs" in mode or "lone wolf" in mode:
             reward = 40
-        else:    
-            reward = kills * 7 
+        else:
+            reward = kills * 7
 
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
@@ -2321,13 +3167,23 @@ def admin_dashboard():
     return render_template_string(STYLE + """
     <div class="overlay">
 
-    
+
         <a class="mode-btn" href="/admin/create_room_page">CREATE ROOM</a>
                                   <a class="admin-btn" href="/admin/analytics">
                    📊 Admin Analytics
                                 </a>
+                                  <a class="mode-btn" href="/admin/matches"> ADD ROOM ID / PASSWORD</a>
+                                  <a class="mode-btn" href="/admin_rooms">ADMIN ROOMS</a>
+                                  <a class="mode-btn" href="/create_free_match">
+🎁 CREATE FREE MATCH
+</a>
+                                  <a class="mode-btn" href="/admin/free_matches">
+📋 FREE MATCH LIST
+</a>
+                                  <a class="mode-btn" href="/team_login">TEAM PANEL</a>
         <a class="mode-btn" href="/admin/withdrawals">WITHDRAW REQUESTS</a>
                                   <a class="mode-btn" href="/admin/notification">SEND NOTIFICATIONS</a>
+                                  <a class="mode-btn" href="/admin/result_requests"> PENDING REQUESTS </a>
                                   <a class="mode-btn" href="/admin/reports">VIEW REPORTS</a>
                                   <a class="mode-btn" href="/admin/banned_users">
                                   BANNED USERS </a>
@@ -2336,6 +3192,201 @@ def admin_dashboard():
 
     </div>
     """)
+#admin rooms
+@app.route("/admin_rooms", methods=["GET","POST"])
+@admin_required
+def admin_rooms():
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute("""
+              CREATE TABLE IF NOT EXISTS admin_rooms(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              mode TEXT,
+              slot TEXT,
+              room_id TEXT,
+              password TEXT,
+              unique(mode,slot)
+              )
+              """)
+    if request.method == "POST":
+        mode = request.form["mode"]
+        slot = normalize_slot(request.form["slot"])
+        room_id = request.form["room_id"]
+        password = request.form["password"]
+
+        c.execute("""
+        INSERT OR REPLACE INTO admin_rooms(mode, slot, room_id, password)
+        VALUES(?,?,?,?)
+        """,(mode, slot, room_id,password))
+
+        conn.commit()
+
+    c.execute("SELECT * FROM admin_rooms")
+    rooms = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+    <h1>ADMIN ROOM ID / PASSWORD</h1>
+
+    <form method="POST">
+        <select name="mode">
+            <option value="solo br">SOLO BR</option>
+            <option value="duo br">DUO BR</option>
+            <option value="1v1 cs challenge">1V1 CS</option>
+            <option value="2v2 cs challenge">2V2 CS</option>
+            <option value="4v4 cs challenge">4V4 CS</option>
+        </select>
+        <input name="slot" placeholder="slot time e.g 08:00 PM" required>
+        <input name="room_id" placeholder="Room ID" required>
+        <input name="password" placeholder="Room Password" required>
+
+        <button class="mode-btn">SAVE ROOM</button>
+    </form>
+
+    {% for r in rooms %}
+        <div class="mode-card">
+        {{r[1]}}<br>
+                                  slot: {{r[2]}}<br>
+        Room ID: {{r[3]}}<br>
+        Password: {{r[4]}}
+        </div>
+    {% endfor %}
+    </div>
+    """, rooms=rooms)
+
+@app.route("/admin/free_matches")
+@admin_required
+def admin_free_matches():
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+SELECT matches.id,
+       matches.mode,
+       matches.slot,
+       matches.winning_prize,
+       COUNT(tournament.id)
+FROM matches
+LEFT JOIN tournament
+ON matches.id = tournament.match_id
+WHERE matches.entry_fee=0
+GROUP BY matches.id
+ORDER BY matches.id DESC
+""")
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>🎁 FREE MATCH LIST</h1>
+
+        {% for m in data %}
+
+        <div class="mode-card">
+
+            🎮 {{m[1].upper()}}<br><br>
+
+            ⏰ {{m[2]}}<br><br>
+
+            📢 {{m[3]}}<br><br>
+
+            <a class="mode-btn"
+            href="/add_room_details/{{m[0]}}">
+            ADD ROOM ID / PASSWORD
+            </a>
+
+        </div>
+
+        {% endfor %}
+
+        <a class="mode-btn" href="/admin/dashboard">
+        BACK
+        </a>
+
+    </div>
+    """, data=data)
+
+# =========================================
+# ADMIN MATCHES
+# =========================================
+
+@app.route("/admin/matches")
+@admin_required
+def admin_matches():
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id, mode, slot, status, room_id,password
+    FROM matches
+    ORDER BY id DESC
+    """)
+
+    data = c.fetchall()
+
+    conn.close()
+
+    return render_template_string(STYLE + """
+
+    <div class="overlay">
+
+        <h1>🎮 ADMIN MATCHES</h1>
+
+        <br>
+
+        {% for m in data %}
+
+        <div class="mode-card">
+
+            <h2>🎮 {{m[1].upper()}}</h2>
+
+            <br>
+
+            ⏰ SLOT : {{m[2]}}
+
+            <br><br>
+
+            📢 STATUS : {{m[3]}}
+
+            <br><br>
+
+            🆔 ROOM ID : {{m[4]}}
+
+            <br><br>
+
+            🔐 PASSWORD : {{m[5]}}
+
+            <br><br>
+
+            <a class="mode-btn"
+            href="/add_room_details/{{m[0]}}">
+
+            ADD / UPDATE ROOM
+
+            </a>
+
+        </div>
+
+        <br>
+
+        {% endfor %}
+
+        <a class="mode-btn"
+        href="/admin/dashboard">
+
+        ⬅ BACK
+
+        </a>
+
+    </div>
+
+    """,data=data)
 
 #admin withdrawals
 @app.route("/admin/withdrawals")
@@ -2346,13 +3397,12 @@ def admin_withdrawals():
     c = conn.cursor()
 
     c.execute("""
-    SELECT id, username, amount, upi, status
+    SELECT id, username, amount, method, details, status
     FROM withdrawal_requests
     ORDER BY id DESC
     """)
 
     data = c.fetchall()
-
     conn.close()
 
     return render_template_string(STYLE + """
@@ -2365,45 +3415,43 @@ def admin_withdrawals():
         <div class="info">
 
             👤 Username : {{w[1]}}
-
             <br><br>
 
             💰 Amount : ₹{{w[2]}}
-
             <br><br>
 
-            📱 UPI : {{w[3]}}
-
+            🏦 Method : {{w[3]}}
             <br><br>
 
-            📢 Status : {{w[4]}}
-
+            📱 Details : {{w[4]}}
             <br><br>
+
+            📢 Status : {{w[5]}}
+            <br><br>
+
+            {% if w[5] == "PENDING" %}
 
             <form action="/admin/approve_withdraw/{{w[0]}}" method="GET">
-
-                <button type="submit">
-                    ✅ APPROVE
-                </button>
-
+                <button type="submit">✅ APPROVE</button>
             </form>
 
             <br>
 
             <form action="/admin/reject_withdraw/{{w[0]}}" method="GET">
-
-                <button type="submit">
-                    ❌ REJECT
-                </button>
-
+                <button type="submit">❌ REJECT</button>
             </form>
+
+            {% endif %}
 
         </div>
 
         {% endfor %}
 
+        <a class="mode-btn" href="/admin/dashboard">BACK</a>
+
     </div>
     """, data=data)
+
 #admin approve withdrawals
 @app.route("/admin/approve_withdraw/<int:id>")
 @admin_required
@@ -2413,10 +3461,10 @@ def approve_withdraw(id):
     c = conn.cursor()
 
     c.execute("""
-    SELECT username, amount
+    SELECT username, amount, method, details, status
     FROM withdrawal_requests
     WHERE id=?
-    """,(id,))
+    """, (id,))
 
     data = c.fetchone()
 
@@ -2426,22 +3474,40 @@ def approve_withdraw(id):
 
     username = data[0]
     amount = data[1]
+    method = data[2]
+    details = data[3]
+    status = data[4]
+
+    if status != "PENDING":
+       conn.close()
+       return "❌ Request already processed"
 
     c.execute("""
-    UPDATE withdrawal_requests
-    SET status='APPROVED'
-    WHERE id=?
-    """,(id,))
+UPDATE wallet
+SET balance = balance - ?
+WHERE username=? AND balance >= ?
+""", (amount, username, amount))
+
+    if c.rowcount == 0:
+      conn.close()
+      return "❌ Low balance or wallet not found"
+
+    c.execute("""
+UPDATE withdrawal_requests
+SET status='APPROVED'
+WHERE id=?
+""", (id,))
 
     c.execute("""
     INSERT INTO notifications(message)
     VALUES(?)
-    """,(f"✅ {username}, your withdrawal of ₹{amount} is APPROVED",))
+    """, (f"✅ {username}, your withdrawal of ₹{amount} via {method} is APPROVED",))
 
     conn.commit()
     conn.close()
 
     return redirect("/admin/withdrawals")
+
 
 #admin reject withdrawal
 @app.route("/admin/reject_withdraw/<int:id>")
@@ -2452,10 +3518,10 @@ def reject_withdraw(id):
     c = conn.cursor()
 
     c.execute("""
-    SELECT username, amount
+    SELECT username, amount, method, details, status
     FROM withdrawal_requests
     WHERE id=?
-    """,(id,))
+    """, (id,))
 
     data = c.fetchone()
 
@@ -2465,17 +3531,24 @@ def reject_withdraw(id):
 
     username = data[0]
     amount = data[1]
+    method = data[2]
+    details = data[3]
+    status = data[4]
+
+    if status != "PENDING":
+        conn.close()
+        return "❌ Request already processed"
 
     c.execute("""
     UPDATE withdrawal_requests
     SET status='REJECTED'
     WHERE id=?
-    """,(id,))
+    """, (id,))
 
     c.execute("""
     INSERT INTO notifications(message)
     VALUES(?)
-    """,(f"❌ {username}, your withdrawal of ₹{amount} is REJECTED",))
+    """, (f"❌ {username}, your withdrawal of ₹{amount} via {method} is REJECTED",))
 
     conn.commit()
     conn.close()
@@ -2753,6 +3826,151 @@ def admin_notification():
 
     </div>
     """)
+#admin check user result
+@app.route("/admin/result_requests")
+@admin_required
+def admin_result_requests():
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id, username, mode, slot,
+    kills, reward, screenshot, status
+    FROM result_requests
+    WHERE status='PENDING'
+    ORDER BY id DESC
+    """)
+
+    data = c.fetchall()
+
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>🏆 PENDING RESULTS</h1>
+
+        {% for r in data %}
+
+        <div class="info">
+
+            👤 User : {{r[1]}}
+            <br><br>
+
+            🎮 Mode : {{r[2]}}
+            <br><br>
+
+            ⏰ Slot : {{r[3]}}
+            <br><br>
+
+            🔫 Kills : {{r[4]}}
+            <br><br>
+
+            💰 Reward : ₹{{r[5]}}
+            <br><br>
+
+            <img src="/{{r[6]}}" width="250">
+
+            <br><br>
+
+            <a class="mode-btn"
+            href="/team/approve_result/{{r[0]}}"
+            APPROVE
+            </a>
+
+        </div>
+
+        {% endfor %}
+
+    </div>
+    """, data=data)
+
+@app.route("/team/approve_result/<int:id>")
+def team_approve_result(id):
+
+    if "team" not in session:
+        return redirect("/team_login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT username, mode, slot, kills, reward
+    FROM result_requests
+    WHERE id=?
+    """, (id,))
+
+    r = c.fetchone()
+
+    if not r:
+        conn.close()
+        return "❌ Result not found"
+
+    c.execute("""
+    INSERT INTO results(username, mode, slot, kills, reward)
+    VALUES(?,?,?,?,?)
+    """, (r[0], r[1], r[2], r[3], r[4]))
+
+    c.execute("""
+    UPDATE wallet
+    SET balance = balance + ?
+    WHERE username=?
+    """, (r[4], r[0]))
+
+    c.execute("""
+    UPDATE result_requests
+    SET status='APPROVED'
+    WHERE id=?
+    """, (id,))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/team/result_requests")
+
+#admin approve user result
+@app.route("/admin/approve_result/<int:id>")
+@admin_required
+def approve_result(id):
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT username, mode, slot, kills, reward
+    FROM result_requests
+    WHERE id=?
+    """,(id,))
+
+    r = c.fetchone()
+
+    if not r:
+        conn.close()
+        return "❌ Result not found"
+
+    c.execute("""
+    INSERT INTO results(username,mode,slot,kills,reward)
+    VALUES(?,?,?,?,?)
+    """,(r[0],r[1],r[2],r[3],r[4]))
+
+    c.execute("""
+    UPDATE wallet
+    SET balance = balance + ?
+    WHERE username=?
+    """,(r[4],r[0]))
+
+    c.execute("""
+    UPDATE result_requests
+    SET status='APPROVED'
+    WHERE id=?
+    """,(id,))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/admin/result_requests")
+
 
 
 # create room page
@@ -2779,9 +3997,10 @@ def create_room_page():
                                   <option value="lone wolf">LONE WOLF</option>
                                   <option value="sniper only br">SNIPER ONLY BR</option>
                                   <option value="booyah only br">BOOYAH ONLY BR</option>
-                <input name="time" placeholder="time (12:00 PM)" required>
+                <input name="slot" placeholder="Slot Time (e.g., 08:00 PM)" required>
                 <input name="room_id" placeholder="Room ID" required>
                 <input name="password" placeholder="Password" required>
+                                  </select>
 
                 <button>CREATE</button>
 
@@ -2829,7 +4048,11 @@ def logout():
 
 @app.route("/mode/<mode>")
 def mode(mode):
-
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute(" SELECT room_id FROM admin_rooms WHERE mode=?",(mode,))
+    room = c.fetchone()
+    conn.close()    
     if "user" not in session:
         return redirect("/login")
 
@@ -2852,14 +4075,14 @@ def mode(mode):
             ⏰ {{s}}
 
             <br><br>
-                                  
+
             entry fee : {{entry_fee}}
             <br><br>
             {% if "cs" in mode or "lone wolf" in mode %}
                                   winner reward : 40
             {% else %}
                                   per kill reward :7
-            {% endif %}                                                                                                             
+            {% endif %}
 
             👥 Players : {{get_count(mode,s)}} / {{get_max_players(mode)}}
 
@@ -2880,6 +4103,7 @@ def mode(mode):
     </div>
 
     """,
+    room=room,
     mode=mode,
     slots=slots,
     entry_fee=entry_fee,
@@ -2938,18 +4162,18 @@ def join(mode, slot):
 
     c.execute("""
     SELECT * FROM tournament
-    WHERE username=? AND mode=? AND slot=?
+    WHERE username=? AND mode=? AND slot=? AND match_id IS NULL
     """,(username,mode,slot))
 
     if c.fetchone():
         conn.close()
         return "❌ ALREADY JOINED"
-    
+
     c.execute("""
-              SELECT COUNT(*) FROM tournament WHERE mode=? AND slot=?
+              SELECT COUNT(*) FROM tournament WHERE mode=? AND slot=? AND match_id IS NULL
               """,(mode,slot))
     count = c.fetchone()[0]
-    if count >= 48:
+    if count >= get_max_players(mode):
         conn.close()
         return"match full"
 
@@ -2960,15 +4184,15 @@ def join(mode, slot):
     )
 
     c.execute("""
-    INSERT INTO tournament(username,mode,slot,status)
-VALUES(?,?,?,?)
+    INSERT INTO tournament(username,mode,slot,status,match_id)
+VALUES(?,?,?,?,NULL)
     """,(username,mode,slot,"UPCOMING"))
-    
+
     conn.commit()
     conn.close()
 
     return redirect(url_for("room",mode=mode,slot=slot))
-    
+
 
 #match status
 def get_match_status(mode,slot):
@@ -3002,9 +4226,9 @@ def update_match_status():
 
             diff = (slot_dt - now_dt).total_seconds() / 60
 
-            if diff > 10:
+            if diff > 0:
                 status = "UPCOMING"
-            elif -10 <= diff <= 10:
+            elif -120 <= diff <= 0:
                 status = "LIVE"
             else:
                 status = "ENDED"
@@ -3025,10 +4249,11 @@ def update_match_status():
 #room
 @app.route("/room/<mode>/<slot>")
 def room(mode, slot):
+    slot = normalize_slot(slot)
 
     if "user" not in session:
         return redirect("/login")
-    
+
     update_match_status()
     status = get_match_status(mode, slot)
 
@@ -3038,18 +4263,19 @@ def room(mode, slot):
     c = conn.cursor()
 
     c.execute(
-        "SELECT username FROM tournament WHERE mode=? AND slot=?",
-        (mode,slot)
+        "SELECT tournament.username,users.game_name FROM tournament JOIN users ON tournament.username = users.username WHERE tournament.mode=? AND tournament.slot=? AND tournament.match_id IS NULL",
+        (mode,slot,)
     )
 
     players = c.fetchall()
 
     c.execute(
-        "SELECT room_id,password,status FROM matches WHERE mode=? AND slot=?",
+        "SELECT room_id,password FROM admin_rooms WHERE LOWER(TRIM(mode))=LOWER(TRIM(?)) AND LOWER(TRIM(slot))=LOWER(TRIM(?))",
         (mode,slot)
     )
 
     data = c.fetchone()
+    created_by = ""
     if not data:
      room_id = "NOT AVAILABLE"
      password = "NOT AVAILABLE"
@@ -3057,9 +4283,9 @@ def room(mode, slot):
     else:
         room_id = data[0]
         password = data[1]
-        status = data[2]
-    conn.close()    
-    
+
+    conn.close()
+
     # =========================
     # SHOW ROOM ONLY 10 MIN BEFORE
     # =========================
@@ -3132,14 +4358,13 @@ def room(mode, slot):
 
         {% for p in players %}
 
-            <li>{{p[0]}}</li>
+            <li>{{p[0]}} - {{p[1]}}</li>
 
         {% endfor %}
 
         </ul>
 
         <br>
-
         <a class="mode-btn" href="/">
             BACK
         </a>
@@ -3154,7 +4379,9 @@ def room(mode, slot):
     password=password,
     status=status,
     count=count,
-    players=players
+    players=players,
+    created_by = created_by,
+    session_user=session["user"]
     )
 
 
@@ -3272,7 +4499,7 @@ def recharge():
                     recharge_active=?
                 WHERE username=?
                 """,(1,1,username))
-                
+
         conn.commit()
 
         # =================================
@@ -3335,23 +4562,48 @@ def withdrawal():
     if request.method == "POST":
 
         amount = int(request.form["amount"])
-        upi = request.form["upi"]
+        method = request.form["method"]
+        details = request.form["details"].strip()
+
         balance = get_balance(username)
+
+        if amount <= 0:
+            return "❌ Invalid amount"
+
         if amount > balance:
-            return " low balance"
+            return "❌ Low balance"
+
+        valid_methods = [
+            "UPI",
+            "PAYTM",
+            "PHONEPE",
+            "GOOGLEPAY",
+            "FAMPAY",
+            "PLAYSTORE_REDEEM"
+        ]
+
+        if method not in valid_methods:
+            return "❌ Invalid withdrawal method"
+
+        if details == "":
+            return "❌ Payment details required"
+
+        if method == "UPI":
+            if "@" not in details or len(details) < 6:
+                return "❌ Invalid UPI ID"
 
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
-        c.execute(
-            "INSERT INTO withdrawal_requests(username,amount,upi,status) VALUES(?,?,?,?)",
-            (username,amount,upi,"PENDING")
-        )
+        c.execute("""
+        INSERT INTO withdrawal_requests(username, amount, method, details, status)
+        VALUES(?,?,?,?,?)
+        """, (username, amount, method, details, "PENDING"))
 
         conn.commit()
         conn.close()
 
-        return "✅ REQUEST SENT"
+        return "✅ WITHDRAWAL REQUEST SENT"
 
     return render_template_string(STYLE + """
 
@@ -3363,9 +4615,21 @@ def withdrawal():
 
             <form method="POST">
 
-                <input name="amount" type="number" placeholder="Amount">
+                <input name="amount" type="number" placeholder="Amount" required>
 
-                <input name="upi" placeholder="UPI ID">
+                <select name="method" required>
+                    <option value="">Select Method</option>
+                    <option value="UPI">UPI ID</option>
+                    <option value="PAYTM">Paytm</option>
+                    <option value="PHONEPE">PhonePe</option>
+                    <option value="GOOGLEPAY">Google Pay</option>
+                    <option value="FAMPAY">FamPay</option>
+                    <option value="PLAYSTORE_REDEEM">Play Store Redeem Code</option>
+                </select>
+
+                <input name="details"
+                placeholder="UPI ID / Mobile Number / Redeem Code Request"
+                required>
 
                 <button>REQUEST</button>
 
@@ -3518,6 +4782,121 @@ def results():
     </div>
 
     """,data=data)
+#user declare result
+@app.route("/submit_result/<int:match_id>", methods=["GET","POST"])
+def submit_result(match_id):
+
+    if "user" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute(""" SELECT mode, slot, entry_fee
+FROM matches
+WHERE id=? """, (match_id,))
+    match = c.fetchone()
+
+    if not match:
+        conn.close()
+        return "❌ Match not found"
+
+    mode = match[0]
+    slot = match[1]
+    entry_fee = match[2]
+
+    if request.method == "POST":
+
+        usernames = request.form.getlist("username")
+        kills_list = request.form.getlist("kills")
+        screenshot = request.files.get("screenshot")
+
+        if not screenshot or screenshot.filename == "":
+          conn.close()
+          return "❌ Screenshot required"
+
+        filename = session["user"] + "_" + screenshot.filename
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        screenshot.save(filepath)
+
+        if len(usernames) == 0:
+            conn.close()
+            return "❌ No players found"
+
+        for i in range(len(usernames)):
+
+            username = usernames[i]
+            kills = int(kills_list[i])
+
+            mode_lower = mode.lower()
+
+        if "cs" in mode_lower or "lone wolf" in mode_lower:
+          total_winners = len(usernames)
+          reward = (entry_fee * 80 / 100) / total_winners
+        else:
+          reward = kills * 8.75
+
+        reward = round(reward, 2)
+
+        c.execute("""
+            INSERT INTO result_requests(
+            username, mode, slot, kills, reward, screenshot, status, entry_fee, total_winners
+            )
+            VALUES(?,?,?,?,?,?,?,?,?)
+            """, (username, mode, slot, kills, reward, filepath, "PENDING", entry_fee, len(usernames)))
+        
+        conn.commit()
+        conn.close()
+
+        return "✅ All player results submitted for approval"
+
+    c.execute("""
+SELECT tournament.username, users.game_name
+FROM tournament
+LEFT JOIN users ON tournament.username = users.username
+WHERE tournament.match_id=?
+ORDER BY tournament.id ASC
+""", (match_id,))
+
+    players = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+
+            <h1>🏆 SUBMIT PLAYER RESULTS</h1>
+
+            {% if players|length == 0 %}
+                <div class="info">
+                    ❌ No players joined this match yet
+                </div>
+            {% endif %}
+
+            <form method="POST" enctype="multipart/form-data">
+
+                {% for p in players %}
+                    <div class="info">
+                        👤{{p[0]}} - {{p[1]}}
+                        <input type="hidden" name="username" value="{{p[0]}}">
+                        <input name="kills" type="number" placeholder="Kills" required>
+                    </div>
+                {% endfor %}
+                 {% if players|length > 0 %}
+    <input name="screenshot" type="file" accept="image/*" required>
+{% endif %}
+                {% if players|length > 0 %}
+                    <button>SUBMIT ALL RESULTS</button>
+                {% endif %}
+
+            </form>
+
+            <br>
+            <a class="mode-btn" href="/join_custom_rooms">BACK</a>
+
+        </div>
+    </div>
+    """, players=players)
 
 # =========================================
 # MY MATCHES
@@ -3642,7 +5021,6 @@ def my_matches():
     upcoming=upcoming,
     live=live,
     ended=ended)
-
 # =========================================
 # PROFILE
 # =========================================
@@ -3659,7 +5037,7 @@ def profile():
     c = conn.cursor()
 
     c.execute(
-        "SELECT username,phone FROM users WHERE username=?",
+        "SELECT username,phone,game_name FROM users WHERE username=?",
         (username,)
     )
 
@@ -3668,7 +5046,7 @@ def profile():
     conn.close()
 
     balance = get_balance(username)
-    
+
     return render_template_string(STYLE + """
 
     <div class="overlay">
@@ -3684,7 +5062,8 @@ def profile():
             📱 Phone : {{user[1]}}
 
             <br><br>
-
+                                  GAME NAME : {{user[2]}}
+           <br><br>
             💰 Balance : ₹{{balance}}
 
         </div>

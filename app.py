@@ -928,7 +928,14 @@ def home():
         <a class="mode-btn" href="/leaderboard">LEADERBOARD</a>
 
                                   <a class="mode-btn" href="/notifications">NOTIFICATIONS</a>
-        <a class="mode-btn" href="/logout">LOGOUT</a>
+                                  <br><br>
+
+                                  <a href="/privacy" class="btn">Privacy Policy</a>
+
+                                  <a href="/terms" class="btn">Terms & Conditions</a>
+
+                                  <a href="/contact" class="btn">Contact</a>
+                                  <a class="mode-btn" href="/logout">LOGOUT</a>
 
     </div>
 
@@ -5260,6 +5267,87 @@ def notifications():
     </div>
     """,data=data)
 
+@app.route("/privacy")
+def privacy():
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>Privacy Policy</h1>
+
+        <div class="mode-card">
+            <p>
+                FireZone Esports users ki basic information jaise username, mobile number,
+                wallet requests, match details aur result records app functionality ke liye store karta hai.
+            </p>
+
+            <p>
+                Hum user data ko kisi third party ke saath sell nahi karte.
+                User data sirf account, match, wallet request aur support purpose ke liye use hota hai.
+            </p>
+
+            <p>
+                Agar kisi user ko account ya data related help chahiye, to contact page se support le sakta hai.
+            </p>
+
+            <br>
+            <a href="/" class="btn">Back to Home</a>
+        </div>
+    </div>
+    """)
+
+
+@app.route("/terms")
+def terms():
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>Terms & Conditions</h1>
+
+        <div class="mode-card">
+            <p>
+                FireZone Esports ek gaming/tournament platform hai. Users ko app use karte time
+                fair play rules follow karne honge.
+            </p>
+
+            <p>
+                Fake details, cheating, wrong result upload, abusive behavior ya multiple fake accounts
+                par account block kiya ja sakta hai.
+            </p>
+
+            <p>
+                Users ko app ke rules, match timing, result rules aur admin decision follow karna hoga.
+            </p>
+
+            <p>
+                Real money/payment features public karne se pehle local laws, age rules aur compliance
+                check karna user ki responsibility hai.
+            </p>
+
+            <br>
+            <a href="/" class="btn">Back to Home</a>
+        </div>
+    </div>
+    """)
+
+
+@app.route("/contact")
+def contact():
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>Contact Support</h1>
+
+        <div class="mode-card">
+            <p>Support ke liye email karein:</p>
+
+            <h3>support@firezoneesports.com</h3>
+
+            <p>
+                Issue bhejte time apna username, mobile number aur problem ka screenshot zaroor bhejein.
+            </p>
+
+            <br>
+            <a href="/" class="btn">Back to Home</a>
+        </div>
+    </div>
+    """)
 
 # =========================================
 # RUN

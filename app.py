@@ -10,6 +10,14 @@ import sqlite3
 import hashlib
 from datetime import datetime, timedelta
 from functools  import wraps
+from flask import send_from_directory
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
+
+@app.route("/service-worker.js")
+def service_worker():
+    return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
 
 def admin_required(f):
     @wraps(f)
@@ -72,6 +80,17 @@ GAP_MINUTES = 30
 # =========================================
 
 STYLE = """
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#ff3b00">
+
+<script>
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js")
+    .then(function() {
+        console.log("Service Worker Registered");
+    });
+}
+</script>
 
 <style>
 

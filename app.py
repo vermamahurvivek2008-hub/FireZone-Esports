@@ -11,13 +11,6 @@ import hashlib
 from datetime import datetime, timedelta
 from functools  import wraps
 from flask import send_from_directory
-@app.route("/manifest.json")
-def manifest():
-    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
-
-@app.route("/service-worker.js")
-def service_worker():
-    return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
 
 def admin_required(f):
     @wraps(f)
@@ -63,6 +56,14 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.secret_key = "firezone_secret"
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
+
+@app.route("/service-worker.js")
+def service_worker():
+    return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
+
 
 ADMIN_USER = "admin"
 ADMIN_PASS = "vivek123"

@@ -2,6 +2,7 @@
 #firezone - esport
 #===========================================
 import random
+import string
 import requests
 import os
 from flask import Flask
@@ -64,6 +65,41 @@ def manifest():
 def service_worker():
     return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
 
+def generate_referral_code(username):
+    random_part = ''.join(random.choices(string.digits, k=4))
+    return username[:4].upper() + random_part
+
+
+def update_referral_system():
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
+    except:
+        pass
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_username TEXT,
+        referred_username TEXT,
+        referral_code TEXT,
+        status TEXT DEFAULT 'PENDING',
+        date TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+update_referral_system()
 
 ADMIN_USER = "admin"
 ADMIN_PASS = "vivek123"
@@ -686,6 +722,38 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests(
       c.execute("ALTER TABLE withdrawal_requests ADD COLUMN details TEXT")
     except:
       pass
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN date TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN time TEXT")
+    except:
+        pass
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN qr_code TEXT")
+    except:
+        pass
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN redeem_code TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN transaction_code TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN processed_date TEXT")
+    except:
+        pass
+
+    try:
+        c.execute("ALTER TABLE withdrawal_requests ADD COLUMN processed_time TEXT")
+    except:
+        pass
 
 
     c.execute("""
@@ -1837,9 +1905,16 @@ def join_match(match_id):
     """, (entry_fee, username))
 
     c.execute("""
-    INSERT INTO tournament(username, mode, slot, status, match_id)
-    VALUES(?,?,?,?,?)
-    """, (username, mode, slot, "UPCOMING", match_id))
+INSERT INTO tournament(username, mode, slot, status, match_id)
+VALUES(?,?,?,?,?)
+""", (username, mode, slot, "UPCOMING", match_id))
+
+# referral completed
+    c.execute("""
+UPDATE referrals
+SET status='COMPLETED'
+WHERE referred_username=? AND status='PENDING'
+""", (session["user"],))
 
     conn.commit()
     conn.close()
@@ -2393,15 +2468,15 @@ def signup():
         password = hashlib.sha256(request.form["password"].encode()).hexdigest()
         phone = request.form["phone"]
         game_name = request.form["game_name"]
-        referral = request.form["referral"]
+        referral_input = request.form.get("referral_code", "").strip().upper()
+        my_referral_code = generate_referral_code(username)
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
         c.execute("SELECT phone FROM users WHERE phone=?", (phone,))
         data = c.fetchone()
         if data:
             return "❌ Phone number already registered"
-        referral = request.form["referral"]
-
+        referral = referral_input
 
 
         # 🔥 check user already exists
@@ -2420,25 +2495,35 @@ def signup():
         "username": username,
         "password": password,
         "phone": phone,
-        game_name:game_name,
+        "game_name": game_name,
         "referral": referral,
         "otp": otp
         }
-        c.execute("""INSERT INTO users (username,password,phone,game_name,referral_by)
-                  VALUES(?,?,?,?,?)""",(username,password,phone,game_name,referral))
+        c.execute("""
+INSERT INTO users (username, phone, password, balance, referral_code, referred_by)
+VALUES (?, ?, ?, ?, ?, ?)
+""", (username, phone, password, 0, my_referral_code, referral_input))
 
         #wallet create
         c.execute("""
-            INSERT OR IGNORE INTO wallet(username,balance)
-            VALUES(?,0)
-        """, (username,))
+    INSERT OR IGNORE INTO wallet(username,balance)
+    VALUES(?,0)
+""", (username,))
+
+        if referral_input:
+          c.execute("SELECT username FROM users WHERE referral_code=?", (referral_input,))
+          referrer = c.fetchone()
+
+          if referrer:
+            c.execute("""
+        INSERT INTO referrals (referrer_username, referred_username, referral_code, status, date)
+        VALUES (?, ?, ?, ?, ?)
+        """, (referrer[0], username, referral_input, "PENDING", datetime.now().strftime("%d-%m-%Y %H:%M")))
 
         conn.commit()
         conn.close()
 
         return redirect("/login")
-
-
     return render_template_string(STYLE + """
 
     <div class="overlay">
@@ -2455,7 +2540,7 @@ def signup():
 
                 <input name="phone" placeholder="Phone Number" required>
                                   <input name="game_name" placeholder="free fire game name" required>
-                                  <input name="referral" placeholder="referral username(optional)">
+                                  <input type="text" name="referral_code" placeholder="Referral Code (Optional)">
 
                 <button>SIGNUP</button>
 
@@ -3424,9 +3509,9 @@ def admin_withdrawals():
     c = conn.cursor()
 
     c.execute("""
-    SELECT id, username, amount, method, details, status
-    FROM withdrawal_requests
-    ORDER BY id DESC
+     SELECT id, username, amount, method, details, status, qr_code
+FROM withdrawal_requests
+ORDER BY id DESC
     """)
 
     data = c.fetchall()
@@ -3455,12 +3540,27 @@ def admin_withdrawals():
 
             📢 Status : {{w[5]}}
             <br><br>
+                                  {% if w[6] %}
+    📷 QR Code : <br><br>
+    <img src="/{{w[6]}}" width="220">
+    <br><br>
+{% else %}
+    📷 QR Code : Not uploaded
+    <br><br>
+{% endif %}
 
             {% if w[5] == "PENDING" %}
 
-            <form action="/admin/approve_withdraw/{{w[0]}}" method="GET">
-                <button type="submit">✅ APPROVE</button>
-            </form>
+            <form action="/admin/approve_withdraw/{{w[0]}}" method="POST">
+
+    {% if w[3] == "PLAYSTORE_REDEEM" %}
+        <input name="redeem_code"
+        placeholder="Enter Play Store Redeem Code"
+        required>
+    {% endif %}
+
+    <button type="submit">✅ APPROVE</button>
+</form>
 
             <br>
 
@@ -3480,7 +3580,7 @@ def admin_withdrawals():
     """, data=data)
 
 #admin approve withdrawals
-@app.route("/admin/approve_withdraw/<int:id>")
+@app.route("/admin/approve_withdraw/<int:id>", methods=["POST"])
 @admin_required
 def approve_withdraw(id):
 
@@ -3504,6 +3604,14 @@ def approve_withdraw(id):
     method = data[2]
     details = data[3]
     status = data[4]
+    redeem_code = ""
+
+    if method == "PLAYSTORE_REDEEM":
+        redeem_code = request.form.get("redeem_code", "").strip()
+
+        if redeem_code == "":
+            conn.close()
+            return "❌ Redeem code required before approve"
 
     if status != "PENDING":
        conn.close()
@@ -3519,12 +3627,18 @@ WHERE username=? AND balance >= ?
       conn.close()
       return "❌ Low balance or wallet not found"
 
-    c.execute("""
-UPDATE withdrawal_requests
-SET status='APPROVED'
-WHERE id=?
-""", (id,))
+    now = datetime.now()
+    processed_date = now.strftime("%d/%m/%Y")
+    processed_time = now.strftime("%I:%M %p")
 
+    c.execute("""
+    UPDATE withdrawal_requests
+    SET status='APPROVED',
+        processed_date=?,
+        processed_time=?,
+        redeem_code=?
+    WHERE id=?
+    """, (processed_date, processed_time, redeem_code, id))
     c.execute("""
     INSERT INTO notifications(message)
     VALUES(?)
@@ -3566,11 +3680,15 @@ def reject_withdraw(id):
         conn.close()
         return "❌ Request already processed"
 
+    now = datetime.now()
+    processed_date = now.strftime("%d/%m/%Y")
+    processed_time = now.strftime("%I:%M %p")
+
     c.execute("""
-    UPDATE withdrawal_requests
-    SET status='REJECTED'
-    WHERE id=?
-    """, (id,))
+UPDATE withdrawal_requests
+SET status='REJECTED', processed_date=?, processed_time=?
+WHERE id=?
+""", (processed_date, processed_time, id))
 
     c.execute("""
     INSERT INTO notifications(message)
@@ -4211,9 +4329,16 @@ def join(mode, slot):
     )
 
     c.execute("""
-    INSERT INTO tournament(username,mode,slot,status,match_id)
+INSERT INTO tournament(username,mode,slot,status,match_id)
 VALUES(?,?,?,?,NULL)
-    """,(username,mode,slot,"UPCOMING"))
+""",(username,mode,slot,"UPCOMING"))
+
+# referral completed
+    c.execute("""
+UPDATE referrals
+SET status='COMPLETED'
+WHERE referred_username=? AND status='PENDING'
+""", (session["user"],))
 
     conn.commit()
     conn.close()
@@ -4431,21 +4556,21 @@ def recharge():
         c = conn.cursor()
 
         # =================================
-        # GET REFERRAL USER
+        # GET REFERRER FROM REFERRALS TABLE
         # =================================
 
         c.execute("""
-        SELECT referral_by
-        FROM users
-        WHERE username=?
-        """,(username,))
+SELECT referrer_username
+FROM referrals
+WHERE referred_username=? AND status='COMPLETED'
+""", (username,))
 
         ref_data = c.fetchone()
 
         referral_user = None
 
         if ref_data:
-            referral_user = ref_data[0]
+          referral_user = ref_data[0]
 
         # =================================
         # ENSURE WALLET EXISTS
@@ -4482,13 +4607,18 @@ def recharge():
 
         if referral_user:
 
-            reward = amount * 0.05
+         reward = round(amount * 0.05, 2)
 
-            c.execute("""
-            UPDATE wallet
-            SET balance = balance + ?
-            WHERE username=?
-            """,(reward,referral_user))
+         c.execute("""
+    UPDATE wallet
+    SET balance = balance + ?
+    WHERE username=?
+    """, (reward, referral_user))
+
+         c.execute("""
+    INSERT INTO notifications(message)
+    VALUES(?)
+    """, (f"🎁 Referral Bonus: {referral_user} got ₹{reward} because {username} added ₹{amount}",))
 
         # =================================
         # DAILY STREAK START
@@ -4591,6 +4721,8 @@ def withdrawal():
         amount = int(request.form["amount"])
         method = request.form["method"]
         details = request.form["details"].strip()
+        qr_file = request.files.get("qr_code")
+        qr_path = ""
 
         balance = get_balance(username)
 
@@ -4599,7 +4731,6 @@ def withdrawal():
 
         if amount > balance:
             return "❌ Low balance"
-
         valid_methods = [
             "UPI",
             "PAYTM",
@@ -4608,6 +4739,20 @@ def withdrawal():
             "FAMPAY",
             "PLAYSTORE_REDEEM"
         ]
+
+        payment_apps = ["UPI", "PAYTM", "PHONEPE", "GOOGLEPAY", "FAMPAY"]
+
+        if method not in valid_methods:
+            return "❌ Invalid withdrawal method"
+
+        if method in payment_apps:
+            if not qr_file or qr_file.filename == "":
+                return "❌ QR Code required for this payment method"
+
+            qr_filename = username + "_withdraw_qr_" + datetime.now().strftime("%Y%m%d%H%M%S") + "_" + qr_file.filename
+            qr_path = os.path.join(UPLOAD_FOLDER, qr_filename)
+            qr_file.save(qr_path)
+           
 
         if method not in valid_methods:
             return "❌ Invalid withdrawal method"
@@ -4622,11 +4767,15 @@ def withdrawal():
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
-        c.execute("""
-        INSERT INTO withdrawal_requests(username, amount, method, details, status)
-        VALUES(?,?,?,?,?)
-        """, (username, amount, method, details, "PENDING"))
+        now = datetime.now()
+        req_date = now.strftime("%d/%m/%Y")
+        req_time = now.strftime("%I:%M %p")
+        transaction_code = "WDR" + now.strftime("%Y%m%d%H%M%S") + str(random.randint(100, 999))
 
+        c.execute("""
+INSERT INTO withdrawal_requests(username, amount, method, details, status, date, time, transaction_code, qr_code)
+VALUES(?,?,?,?,?,?,?,?,?)
+""", (username, amount, method, details, "PENDING", req_date, req_time, transaction_code, qr_path))
         conn.commit()
         conn.close()
 
@@ -4640,7 +4789,7 @@ def withdrawal():
 
             <h1>💸 WITHDRAWAL</h1>
 
-            <form method="POST">
+            <form method="POST" enctype="multipart/form-data">
 
                 <input name="amount" type="number" placeholder="Amount" required>
 
@@ -4657,16 +4806,189 @@ def withdrawal():
                 <input name="details"
                 placeholder="UPI ID / Mobile Number / Redeem Code Request"
                 required>
+                                  <p>📷 QR Code Upload</p>
+<input name="qr_code" type="file" accept="image/*">
+<small>PhonePe / Google Pay / Paytm / UPI ke liye QR code upload karein. Play Store Redeem ke liye QR required nahi hai.</small>
+<br><br>
 
                 <button>REQUEST</button>
+                                  <p style="color:#ffea00;">
+    🎁 Redeem available on transaction history after admin approve
+</p>
 
             </form>
+                                  <br><br>
+
+<a class="mode-btn" href="/withdrawal_pending">⏳ Pending</a>
+<a class="mode-btn" href="/withdrawal_completed">✅ Completed</a>
+<a class="mode-btn" href="/withdrawal_history">📜 History</a>
+
+<a class="mode-btn" href="/">BACK</a>
 
         </div>
 
     </div>
 
     """)
+
+@app.route("/withdrawal_pending")
+def withdrawal_pending():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, method, details, status, date, time, transaction_code
+    FROM withdrawal_requests
+    WHERE username=? AND status='PENDING'
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>⏳ Pending Withdrawals</h1>
+
+        {% if data %}
+            {% for w in data %}
+            <div class="mode-card">
+                <h2>⏳ Pending Request</h2>
+                💰 Amount : ₹{{w[0]}} <br><br>
+                📅 Date : {{w[4] or 'N/A'}} <br><br>
+                ⏰ Time : {{w[5] or 'N/A'}} <br><br>
+                🧾 Transaction Code : {{w[6] or 'N/A'}} <br><br>
+                🏦 Method : {{w[1]}} <br><br>
+                📱 Details : {{w[2]}} <br><br>
+                📢 Status : {{w[3]}}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No pending withdrawals.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/withdrawal">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/withdrawal_completed")
+def withdrawal_completed():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, method, details, status, date, time, transaction_code, processed_date, processed_time, redeem_code
+    FROM withdrawal_requests
+    WHERE username=? AND status='APPROVED'
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>✅ Completed Withdrawals</h1>
+
+        {% if data %}
+            {% for w in data %}
+            <div class="mode-card">
+                <h2>✅ Withdrawal Completed</h2>
+                💰 Amount : ₹{{w[0]}} <br><br>
+                📅 Request Date : {{w[4] or 'N/A'}} <br><br>
+                ⏰ Request Time : {{w[5] or 'N/A'}} <br><br>
+                ✅ Completed Date : {{w[7] or 'N/A'}} <br><br>
+                ✅ Completed Time : {{w[8] or 'N/A'}} <br><br>
+                🧾 Transaction Code : {{w[6] or 'N/A'}} <br><br>
+                                  {% if w[1] == 'PLAYSTORE_REDEEM' %}
+    🎁 Redeem Code : {{w[9] or 'Available after admin approve'}} <br><br>
+{% endif %}
+                🏦 Method : {{w[1]}} <br><br>
+                📱 Details : {{w[2]}} <br><br>
+                📢 Status : COMPLETED
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No completed withdrawals.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/withdrawal">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/withdrawal_history")
+def withdrawal_history():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, method, details, status, date, time, transaction_code, processed_date, processed_time, redeem_code
+    FROM withdrawal_requests
+    WHERE username=?
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>📜 Withdrawal History</h1>
+
+        {% if data %}
+            {% for w in data %}
+            <div class="mode-card">
+                {% if w[3] == 'PENDING' %}
+                    <h2>⏳ Pending</h2>
+                {% elif w[3] == 'APPROVED' %}
+                    <h2>✅ Completed</h2>
+                {% elif w[3] == 'REJECTED' %}
+                    <h2>❌ Rejected</h2>
+                {% else %}
+                    <h2>📜 {{w[3]}}</h2>
+                {% endif %}
+
+                💰 Amount : ₹{{w[0]}} <br><br>
+                📅 Request Date : {{w[4] or 'N/A'}} <br><br>
+                ⏰ Request Time : {{w[5] or 'N/A'}} <br><br>
+                🧾 Transaction Code : {{w[6] or 'N/A'}} <br><br>
+                                  {% if w[1] == 'PLAYSTORE_REDEEM' %}
+    🎁 Redeem Code : {{w[9] or 'Available after admin approve'}} <br><br>
+{% endif %}
+                🏦 Method : {{w[1]}} <br><br>
+                📱 Details : {{w[2]}} <br><br>
+                📢 Status : {{w[3]}} <br><br>
+
+                {% if w[3] != 'PENDING' %}
+                    📅 Processed Date : {{w[7] or 'N/A'}} <br><br>
+                    ⏰ Processed Time : {{w[8] or 'N/A'}} <br><br>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No withdrawal history.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/withdrawal">BACK</a>
+    </div>
+    """, data=data)
 
 # =========================================
 # DAILY REWARD
@@ -5063,11 +5385,7 @@ def profile():
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
 
-    c.execute(
-        "SELECT username,phone,game_name FROM users WHERE username=?",
-        (username,)
-    )
-
+    c.execute("SELECT username, phone, balance, referral_code FROM users WHERE username=?", (session["user"],))
     user = c.fetchone()
 
     conn.close()
@@ -5092,7 +5410,9 @@ def profile():
                                   GAME NAME : {{user[2]}}
            <br><br>
             💰 Balance : ₹{{balance}}
+            <p>🎁 Referral No: <b>{{user[3]}}</b></p>
 
+            <a href="/refer" class="btn">Refer & Earn</a>
         </div>
 
     </div>
@@ -5348,6 +5668,100 @@ def contact():
         </div>
     </div>
     """)
+
+@app.route("/refer")
+def refer():
+    if "user" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("SELECT referral_code FROM users WHERE username=?", (session["user"],))
+    data = c.fetchone()
+    conn.close()
+
+    referral_code = data[0] if data and data[0] else "NO-CODE"
+
+    app_link = "https://firezone-esports-92ff.onrender.com"
+    message = f"Join FireZone Esports using my referral code: {referral_code} {app_link}"
+    whatsapp_link = "https://wa.me/?text=" + message.replace(" ", "%20")
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>🎁 Refer & Earn</h1>
+
+        <div class="mode-card">
+            <h2>Your Referral Code</h2>
+            <h1>{{referral_code}}</h1>
+
+            <p>Apne friends ko ye referral code bhejo.</p>
+
+            <a href="{{whatsapp_link}}" class="btn">Share on WhatsApp</a>
+            <br><br>
+
+            <a href="/referral_history" class="btn">Referral History</a>
+            <br><br>
+
+            <a href="/profile" class="btn">Back to Profile</a>
+        </div>
+    </div>
+    """, referral_code=referral_code, whatsapp_link=whatsapp_link)
+
+
+@app.route("/referral_history")
+def referral_history():
+    if "user" not in session:
+        return redirect("/login")
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT referred_username, status, date 
+    FROM referrals 
+    WHERE referrer_username=?
+    ORDER BY id DESC
+    """, (session["user"],))
+
+    refs = c.fetchall()
+    conn.close()
+
+    pending = [r for r in refs if r[1] == "PENDING"]
+    completed = [r for r in refs if r[1] == "COMPLETED"]
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>📜 Referral History</h1>
+
+        <div class="mode-card">
+            <h2>⏳ Pending Refer</h2>
+
+            {% if pending %}
+                {% for r in pending %}
+                    <p>👤 {{r[0]}} | {{r[2]}}</p>
+                {% endfor %}
+            {% else %}
+                <p>No pending referrals.</p>
+            {% endif %}
+        </div>
+
+        <div class="mode-card">
+            <h2>✅ Completed Refer</h2>
+
+            {% if completed %}
+                {% for r in completed %}
+                    <p>👤 {{r[0]}} | {{r[2]}}</p>
+                {% endfor %}
+            {% else %}
+                <p>No completed referrals.</p>
+            {% endif %}
+        </div>
+
+        <br>
+        <a href="/refer" class="btn">Back</a>
+    </div>
+    """, pending=pending, completed=completed)
 
 # =========================================
 # RUN

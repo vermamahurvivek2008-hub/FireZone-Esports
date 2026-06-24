@@ -4793,7 +4793,7 @@ VALUES(?,?,?,?,?,?,?,?,?)
 
                 <input name="amount" type="number" placeholder="Amount" required>
 
-                <select name="method" required>
+                <select name="method" id="methodSelect" required>
                     <option value="">Select Method</option>
                     <option value="UPI">UPI ID</option>
                     <option value="PAYTM">Paytm</option>
@@ -4806,16 +4806,35 @@ VALUES(?,?,?,?,?,?,?,?,?)
                 <input name="details"
                 placeholder="UPI ID / Mobile Number / Redeem Code Request"
                 required>
-                                  <p>📷 QR Code Upload</p>
-<input name="qr_code" type="file" accept="image/*">
-<small>PhonePe / Google Pay / Paytm / UPI ke liye QR code upload karein. Play Store Redeem ke liye QR required nahi hai.</small>
-<br><br>
+                                  <<div id="qrBox" style="display:none;">
+    <p>📷 QR Code Upload</p>
+    <input id="qrInput" name="qr_code" type="file" accept="image/*">
+    <small>PhonePe / Google Pay / Paytm / UPI ke liye QR code upload karein.</small>
+    <br><br>
+</div>
 
                 <button>REQUEST</button>
                                   <p style="color:#ffea00;">
     🎁 Redeem available on transaction history after admin approve
 </p>
+          <script>
+const methodSelect = document.getElementById("methodSelect");
+const qrBox = document.getElementById("qrBox");
+const qrInput = document.getElementById("qrInput");
 
+methodSelect.addEventListener("change", function() {
+    const paymentApps = ["UPI", "PAYTM", "PHONEPE", "GOOGLEPAY", "FAMPAY"];
+
+    if (paymentApps.includes(this.value)) {
+        qrBox.style.display = "block";
+        qrInput.required = true;
+    } else {
+        qrBox.style.display = "none";
+        qrInput.required = false;
+        qrInput.value = "";
+    }
+});
+</script>
             </form>
                                   <br><br>
 

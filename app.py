@@ -754,7 +754,19 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests(
         c.execute("ALTER TABLE withdrawal_requests ADD COLUMN processed_time TEXT")
     except:
         pass
-
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS recharge_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        amount INTEGER,
+        transaction_id TEXT,
+        status TEXT DEFAULT 'PENDING',
+        date TEXT,
+        time TEXT,
+        processed_date TEXT,
+        processed_time TEXT
+    )
+    """)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS daily_reward(
@@ -3294,6 +3306,7 @@ def admin_dashboard():
 </a>
                                   <a class="mode-btn" href="/team_login">TEAM PANEL</a>
         <a class="mode-btn" href="/admin/withdrawals">WITHDRAW REQUESTS</a>
+                                  <a class="mode-btn" href="/admin/recharges">RECHARGE REQUESTS</a>
                                   <a class="mode-btn" href="/admin/notification">SEND NOTIFICATIONS</a>
                                   <a class="mode-btn" href="/admin/result_requests"> PENDING REQUESTS </a>
                                   <a class="mode-btn" href="/admin/reports">VIEW REPORTS</a>
@@ -3699,6 +3712,204 @@ WHERE id=?
     conn.close()
 
     return redirect("/admin/withdrawals")
+#admin recharge
+@app.route("/admin/recharges")
+@admin_required
+def admin_recharges():
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id, username, amount, transaction_id, status, date, time
+    FROM recharge_requests
+    ORDER BY id DESC
+    """)
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>💰 Recharge Requests</h1>
+
+        {% for r in data %}
+        <div class="mode-card">
+            👤 User : {{r[1]}} <br><br>
+            💰 Amount : ₹{{r[2]}} <br><br>
+            🧾 Transaction ID : {{r[3]}} <br><br>
+            📅 Date : {{r[5]}} <br><br>
+            ⏰ Time : {{r[6]}} <br><br>
+            📢 Status : {{r[4]}} <br><br>
+
+            {% if r[4] == 'PENDING' %}
+                <a class="mode-btn" href="/admin/approve_recharge/{{r[0]}}">✅ APPROVE</a>
+                <a class="mode-btn" href="/admin/reject_recharge/{{r[0]}}">❌ REJECT</a>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <a class="mode-btn" href="/admin/dashboard">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/admin/approve_recharge/<int:id>")
+@admin_required
+def approve_recharge(id):
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT username, amount, status
+    FROM recharge_requests
+    WHERE id=?
+    """, (id,))
+
+    data = c.fetchone()
+
+    if not data:
+        conn.close()
+        return "❌ Recharge request not found"
+
+    username = data[0]
+    amount = data[1]
+    status = data[2]
+
+    if status != "PENDING":
+        conn.close()
+        return "❌ Request already processed"
+
+    now = datetime.now()
+    processed_date = now.strftime("%d/%m/%Y")
+    processed_time = now.strftime("%I:%M %p")
+
+    c.execute("""
+    INSERT OR IGNORE INTO wallet(username,balance)
+    VALUES(?,0)
+    """, (username,))
+
+    c.execute("""
+    UPDATE wallet
+    SET balance = balance + ?
+    WHERE username=?
+    """, (amount, username))
+
+    # referral bonus after approved recharge
+    c.execute("""
+    SELECT referrer_username
+    FROM referrals
+    WHERE referred_username=? AND status='COMPLETED'
+    """, (username,))
+
+    ref_data = c.fetchone()
+
+    if ref_data:
+        referral_user = ref_data[0]
+        reward = round(amount * 0.05, 2)
+
+        c.execute("""
+        INSERT OR IGNORE INTO wallet(username,balance)
+        VALUES(?,0)
+        """, (referral_user,))
+
+        c.execute("""
+        UPDATE wallet
+        SET balance = balance + ?
+        WHERE username=?
+        """, (reward, referral_user))
+
+        c.execute("""
+        INSERT INTO notifications(message)
+        VALUES(?)
+        """, (f"🎁 Referral Bonus: {referral_user} got ₹{reward} because {username} recharge approved ₹{amount}",))
+
+    # daily reward active after recharge approved
+    c.execute("""
+    SELECT recharge_active
+    FROM daily_reward
+    WHERE username=?
+    """, (username,))
+
+    streak = c.fetchone()
+
+    if not streak:
+        c.execute("""
+        INSERT INTO daily_reward(username,current_day,last_claim,recharge_active)
+        VALUES(?,?,?,?)
+        """, (username, 1, "", 1))
+    else:
+        if streak[0] == 0:
+            c.execute("""
+            UPDATE daily_reward
+            SET current_day=?, recharge_active=?
+            WHERE username=?
+            """, (1, 1, username))
+
+    c.execute("""
+    UPDATE recharge_requests
+    SET status='APPROVED', processed_date=?, processed_time=?
+    WHERE id=?
+    """, (processed_date, processed_time, id))
+
+    c.execute("""
+    INSERT INTO notifications(message)
+    VALUES(?)
+    """, (f"✅ {username}, your recharge of ₹{amount} is approved",))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/admin/recharges")
+
+
+@app.route("/admin/reject_recharge/<int:id>")
+@admin_required
+def reject_recharge(id):
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT username, amount, status
+    FROM recharge_requests
+    WHERE id=?
+    """, (id,))
+
+    data = c.fetchone()
+
+    if not data:
+        conn.close()
+        return "❌ Recharge request not found"
+
+    username = data[0]
+    amount = data[1]
+    status = data[2]
+
+    if status != "PENDING":
+        conn.close()
+        return "❌ Request already processed"
+
+    now = datetime.now()
+    processed_date = now.strftime("%d/%m/%Y")
+    processed_time = now.strftime("%I:%M %p")
+
+    c.execute("""
+    UPDATE recharge_requests
+    SET status='REJECTED', processed_date=?, processed_time=?
+    WHERE id=?
+    """, (processed_date, processed_time, id))
+
+    c.execute("""
+    INSERT INTO notifications(message)
+    VALUES(?)
+    """, (f"❌ {username}, your recharge of ₹{amount} is rejected",))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/admin/recharges")
 
 # =========================================
 # ADMIN ANALYTICS
@@ -4540,169 +4751,270 @@ def room(mode, slot):
 # =========================================
 # RECHARGE
 # =========================================
+
 @app.route("/recharge", methods=["GET", "POST"])
 def recharge():
 
     if "user" not in session:
         return redirect("/login")
 
-    username = session["user"]
-
-    if request.method == "POST":
-
-        amount = int(request.form["amount"])
-
-        conn = sqlite3.connect("database.db")
-        c = conn.cursor()
-
-        # =================================
-        # GET REFERRER FROM REFERRALS TABLE
-        # =================================
-
-        c.execute("""
-SELECT referrer_username
-FROM referrals
-WHERE referred_username=? AND status='COMPLETED'
-""", (username,))
-
-        ref_data = c.fetchone()
-
-        referral_user = None
-
-        if ref_data:
-          referral_user = ref_data[0]
-
-        # =================================
-        # ENSURE WALLET EXISTS
-        # =================================
-
-        c.execute("""
-        SELECT balance
-        FROM wallet
-        WHERE username=?
-        """,(username,))
-
-        data = c.fetchone()
-
-        if data is None:
-
-            c.execute("""
-            INSERT INTO wallet(username,balance)
-            VALUES(?,?)
-            """,(username,0))
-
-        # =================================
-        # USER RECHARGE
-        # =================================
-
-        c.execute("""
-        UPDATE wallet
-        SET balance = balance + ?
-        WHERE username=?
-        """,(amount,username))
-
-        # =================================
-        # REFERRAL REWARD
-        # =================================
-
-        if referral_user:
-
-         reward = round(amount * 0.05, 2)
-
-         c.execute("""
-    UPDATE wallet
-    SET balance = balance + ?
-    WHERE username=?
-    """, (reward, referral_user))
-
-         c.execute("""
-    INSERT INTO notifications(message)
-    VALUES(?)
-    """, (f"🎁 Referral Bonus: {referral_user} got ₹{reward} because {username} added ₹{amount}",))
-
-        # =================================
-        # DAILY STREAK START
-        # =================================
-
-        c.execute("""
-        SELECT recharge_active
-        FROM daily_reward
-        WHERE username=?
-        """,(username,))
-
-        streak = c.fetchone()
-
-        if not streak:
-
-            c.execute("""
-            INSERT INTO daily_reward(
-            username,
-            current_day,
-            last_claim,
-            recharge_active
-            )
-            VALUES(?,?,?,?)
-            """,(username,1,"",1))
-
-        else:
-
-            recharge_active = streak[0]
-
-            if recharge_active == 0:
-
-                c.execute("""
-                UPDATE daily_reward
-                SET current_day=?,
-                    recharge_active=?
-                WHERE username=?
-                """,(1,1,username))
-
-        conn.commit()
-
-        # =================================
-        # GET UPDATED BALANCE
-        # =================================
-
-        c.execute("""
-        SELECT balance
-        FROM wallet
-        WHERE username=?
-        """,(username,))
-
-        balance = c.fetchone()[0]
-
-        conn.close()
-
-        return f"✅ RECHARGE SUCCESSFUL | NEW BALANCE: ₹{balance}"
-
     return render_template_string(STYLE + """
-
     <div class="overlay">
 
-        <div class="box">
+        <h1>💰 RECHARGE</h1>
 
-            <h1>💰 RECHARGE</h1>
+        <div class="mode-card">
+            <h2>➕ Add Money</h2>
 
-            <form method="POST">
+            <form method="POST" action="/recharge_pay">
 
                 <input name="amount"
                 type="number"
                 placeholder="Enter Amount"
                 required>
 
-                <button>ADD MONEY</button>
+                <button>PAYMENT</button>
+
+            </form>
+        </div>
+
+        <a class="mode-btn" href="/recharge_pending">⏳ Pending</a>
+        <a class="mode-btn" href="/recharge_completed">✅ Completed</a>
+        <a class="mode-btn" href="/recharge_history">📜 History</a>
+
+        <a class="mode-btn" href="/">BACK</a>
+
+    </div>
+    """)
+
+
+@app.route("/recharge_pay", methods=["POST"])
+def recharge_pay():
+
+    if "user" not in session:
+        return redirect("/login")
+
+    amount = int(request.form["amount"])
+
+    if amount <= 0:
+        return "❌ Invalid amount"
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+
+        <h1>📲 PAYMENT</h1>
+
+        <div class="mode-card">
+
+            <h2>Amount : ₹{{amount}}</h2>
+
+            <img src="/static/images/scanner.png"
+            style="width:260px; height:260px; object-fit:contain; background:white; padding:10px; border-radius:15px;">
+
+            <br><br>
+
+            <p style="color:#ffea00;">
+                Kisi bhi payment app se scanner par payment karein.
+                Payment complete hone ke baad transaction ID neeche daalein.
+            </p>
+
+            <form method="POST" action="/recharge_submit">
+
+                <input type="hidden" name="amount" value="{{amount}}">
+
+                <input name="transaction_id"
+                placeholder="Enter Transaction ID"
+                required>
+
+                <button>SUBMIT RECHARGE REQUEST</button>
 
             </form>
 
-            <br>
-
-            <a href="/">BACK</a>
-
         </div>
 
-    </div>
+        <a class="mode-btn" href="/recharge">BACK</a>
 
-    """)
+    </div>
+    """, amount=amount)
+
+
+@app.route("/recharge_submit", methods=["POST"])
+def recharge_submit():
+
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+    amount = int(request.form["amount"])
+    transaction_id = request.form["transaction_id"].strip()
+
+    if amount <= 0:
+        return "❌ Invalid amount"
+
+    if transaction_id == "":
+        return "❌ Transaction ID required"
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT id
+    FROM recharge_requests
+    WHERE transaction_id=?
+    """, (transaction_id,))
+
+    if c.fetchone():
+        conn.close()
+        return "❌ This transaction ID is already used"
+
+    now = datetime.now()
+    req_date = now.strftime("%d/%m/%Y")
+    req_time = now.strftime("%I:%M %p")
+
+    c.execute("""
+    INSERT INTO recharge_requests(username, amount, transaction_id, status, date, time)
+    VALUES(?,?,?,?,?,?)
+    """, (username, amount, transaction_id, "PENDING", req_date, req_time))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/recharge_pending")
+
+@app.route("/recharge_pending")
+def recharge_pending():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, transaction_id, status, date, time
+    FROM recharge_requests
+    WHERE username=? AND status='PENDING'
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>⏳ Recharge Pending</h1>
+
+        {% if data %}
+            {% for r in data %}
+            <div class="mode-card">
+                💰 Amount : ₹{{r[0]}} <br><br>
+                🧾 Transaction ID : {{r[1]}} <br><br>
+                📅 Date : {{r[3]}} <br><br>
+                ⏰ Time : {{r[4]}} <br><br>
+                📢 Status : {{r[2]}}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No pending recharge.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/recharge">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/recharge_completed")
+def recharge_completed():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, transaction_id, status, date, time, processed_date, processed_time
+    FROM recharge_requests
+    WHERE username=? AND status='APPROVED'
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>✅ Recharge Completed</h1>
+
+        {% if data %}
+            {% for r in data %}
+            <div class="mode-card">
+                💰 Amount : ₹{{r[0]}} <br><br>
+                🧾 Transaction ID : {{r[1]}} <br><br>
+                📅 Request Date : {{r[3]}} <br><br>
+                ⏰ Request Time : {{r[4]}} <br><br>
+                ✅ Approved Date : {{r[5] or 'N/A'}} <br><br>
+                ✅ Approved Time : {{r[6] or 'N/A'}} <br><br>
+                📢 Status : COMPLETED
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No completed recharge.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/recharge">BACK</a>
+    </div>
+    """, data=data)
+
+
+@app.route("/recharge_history")
+def recharge_history():
+    if "user" not in session:
+        return redirect("/login")
+
+    username = session["user"]
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT amount, transaction_id, status, date, time, processed_date, processed_time
+    FROM recharge_requests
+    WHERE username=?
+    ORDER BY id DESC
+    """, (username,))
+
+    data = c.fetchall()
+    conn.close()
+
+    return render_template_string(STYLE + """
+    <div class="overlay">
+        <h1>📜 Recharge History</h1>
+
+        {% if data %}
+            {% for r in data %}
+            <div class="mode-card">
+                💰 Amount : ₹{{r[0]}} <br><br>
+                🧾 Transaction ID : {{r[1]}} <br><br>
+                📅 Request Date : {{r[3]}} <br><br>
+                ⏰ Request Time : {{r[4]}} <br><br>
+                📢 Status : {{r[2]}} <br><br>
+
+                {% if r[2] != 'PENDING' %}
+                    📅 Processed Date : {{r[5] or 'N/A'}} <br><br>
+                    ⏰ Processed Time : {{r[6] or 'N/A'}} <br><br>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="info">No recharge history.</div>
+        {% endif %}
+
+        <a class="mode-btn" href="/recharge">BACK</a>
+    </div>
+    """, data=data)
 
 # =========================================
 # WITHDRAWAL

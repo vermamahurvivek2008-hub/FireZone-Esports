@@ -2,12 +2,20 @@
 #firezone - esport
 #===========================================
 import random
+from flask import Flask, request, redirect, session, render_template_string
+import sqlite3
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import smtplib
+from email.mime.text import MIMEText
 import string
 import requests
 import os
 from flask import Flask
-from flask import flash, render_template_string, request, redirect, url_for, session
-import sqlite3
+from flask import send_from_directory
+from flask import url_for, session
 import hashlib
 from datetime import datetime, timedelta
 from functools  import wraps
@@ -20,32 +28,6 @@ def admin_required(f):
             return redirect("/admin")
         return f(*args,**kwargs)
     return wrap
-#send otp
-def send_otp(phone,otp):
-    url = "https://control.msg91.com/api/v5/otp"
-    payload = {
-        "mobile" : "91" + phone,
-        "otp" : otp
-    }
-    print(payload)
-    headers = {
-        "authkey" : "521131Tu34rRIuWj6a1a7314P1"
-    }
-    response = requests.post(url, data=payload, headers=headers)
-    print("msg91 STATUS :", response.status_code)
-    print("msg91 response :", response.text)
-    requests.post(url, data=payload, headers=headers)
-    def db_connect():
-        return sqlite3.connect("database.db")
-def db_connect():
-    return sqlite3.connect("database.db")
-def fetch_one(query,params=()):
-    conn = db_connect()
-    c = conn.cursor()
-    c.execute(query,params)
-    data = c.fetchone()
-    conn.close()
-    return data
 
 # =========================================
 # APP START
@@ -57,6 +39,29 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.secret_key = "firezone_secret"
+def send_otp_email(receiver_email, otp):
+    sender_email = os.environ.get("firezoneesport001@gmail.com")
+    app_password = os.environ.get("uylxohohzafhhcng")
+
+    subject = "FireZone Esport OTP Verification"
+    body = f"Your OTP is: {otp}"
+
+    msg = MIMEMultipart()
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender_email, app_password)
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        print("Email OTP error:", e)
+        return False
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
@@ -614,7 +619,20 @@ def init_db():
     try:
         c.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
     except:
+        pass    
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN email TEXT")    
+    except:
         pass
+    try:
+      c.execute("ALTER TABLE users ADD COLUMN referral_code TEXT")
+    except:
+      pass
+
+    try:
+      c.execute("ALTER TABLE users ADD COLUMN referred_by TEXT")
+    except:
+      pass
     try:
         c.execute("ALTER TABLE users ADD COLUMN game_name TEXT")
     except:
@@ -2479,63 +2497,53 @@ def signup():
         username = request.form["username"]
         password = hashlib.sha256(request.form["password"].encode()).hexdigest()
         phone = request.form["phone"]
+        email = request.form["email"]
         game_name = request.form["game_name"]
         referral_input = request.form.get("referral_code", "").strip().upper()
         my_referral_code = generate_referral_code(username)
+
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
+
         c.execute("SELECT phone FROM users WHERE phone=?", (phone,))
         data = c.fetchone()
         if data:
-            return "❌ Phone number already registered"
-        referral = referral_input
+          conn.close()
+          return "❌ Phone number already registered"
 
+        c.execute("SELECT email FROM users WHERE email=?", (email,))
+        data = c.fetchone()
+        if data:
+          conn.close()
+          return "❌ Email already registered"
 
-        # 🔥 check user already exists
         c.execute("SELECT username FROM users WHERE username=?", (username,))
         data = c.fetchone()
-
         if data:
+            conn.close()
             return "❌ Username already exists"
 
-
-
-        otp = random.randint(100000, 999999)
-
-
-        session["signup_data"] = {
-        "username": username,
-        "password": password,
-        "phone": phone,
-        "game_name": game_name,
-        "referral": referral,
-        "otp": otp
-        }
-        c.execute("""
-INSERT INTO users (username, phone, password, balance, referral_code, referred_by)
-VALUES (?, ?, ?, ?, ?, ?)
-""", (username, phone, password, 0, my_referral_code, referral_input))
-
-        #wallet create
-        c.execute("""
-    INSERT OR IGNORE INTO wallet(username,balance)
-    VALUES(?,0)
-""", (username,))
-
-        if referral_input:
-          c.execute("SELECT username FROM users WHERE referral_code=?", (referral_input,))
-          referrer = c.fetchone()
-
-          if referrer:
-            c.execute("""
-        INSERT INTO referrals (referrer_username, referred_username, referral_code, status, date)
-        VALUES (?, ?, ?, ?, ?)
-        """, (referrer[0], username, referral_input, "PENDING", datetime.now().strftime("%d-%m-%Y %H:%M")))
-
-        conn.commit()
         conn.close()
 
-        return redirect("/login")
+        otp = str(random.randint(100000, 999999))
+
+        session["signup_data"] = {
+            "username": username,
+            "password": password,
+            "phone": phone,
+            "email": email,
+            "game_name": game_name,
+            "referral": referral_input,
+            "my_referral_code": my_referral_code,
+            "otp": otp
+        }
+
+        sent = send_otp_email(email, otp)
+
+        if sent:
+          return redirect("/verify_otp")
+        else:
+         return "❌ OTP email send nahi hua. Terminal me Email OTP error check karo."
     return render_template_string(STYLE + """
 
     <div class="overlay">
@@ -2549,10 +2557,13 @@ VALUES (?, ?, ?, ?, ?, ?)
                 <input name="username" placeholder="Username" required>
 
                 <input name="password" type="password" placeholder="Password" required>
+                                  <input name="email" type="email" placeholder="Email Address" required>
 
                 <input name="phone" placeholder="Phone Number" required>
-                                  <input name="game_name" placeholder="free fire game name" required>
-                                  <input type="text" name="referral_code" placeholder="Referral Code (Optional)">
+
+                <input name="game_name" placeholder="free fire game name" required>
+
+                <input type="text" name="referral_code" placeholder="Referral Code (Optional)">
 
                 <button>SIGNUP</button>
 
@@ -2566,8 +2577,7 @@ VALUES (?, ?, ?, ?, ?, ?)
 
     </div>
 
-    """
-                                  )
+    """)
 #otp verification
 @app.route("/verify_otp", methods=["GET","POST"])
 def verify_otp():
@@ -2582,26 +2592,58 @@ def verify_otp():
         otp = request.form["otp"]
 
         if otp != str(data["otp"]):
-            return "❌ WRONG OTP"
+            return render_template_string(STYLE + """
+            <div class="overlay">
+                <div class="box">
+                    <h1>❌ WRONG OTP</h1>
+                    <a class="mode-btn" href="/verify_otp">TRY AGAIN</a>
+                </div>
+            </div>
+            """)
+
+        username = data["username"]
+        password = data["password"]
+        phone = data["phone"]
+        email = data["email"]
+        game_name = data["game_name"]
+        referral_input = data["referral"]
+        my_referral_code = data["my_referral_code"]
 
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
         c.execute("""
-        INSERT INTO users(username,password,phone,game_name,referral_by)
-        VALUES(?,?,?,?,?)
-        """,(data["username"],data["password"],data["phone"],data["game_name"],data["referral"]))
+        INSERT INTO users(username, password, phone,email, game_name, referral_code, referred_by)
+        VALUES(?,?,?,?,?,?,?)
+        """, (username, password, phone,email, game_name, my_referral_code, referral_input))
 
         c.execute("""
         INSERT OR IGNORE INTO wallet(username,balance)
         VALUES(?,0)
-        """,(data["username"],))
+        """, (username,))
+
+        if referral_input:
+            c.execute("SELECT username FROM users WHERE referral_code=?", (referral_input,))
+            referrer = c.fetchone()
+
+            if referrer:
+                c.execute("""
+                INSERT INTO referrals (referrer_username, referred_username, referral_code, status, date)
+                VALUES (?, ?, ?, ?, ?)
+                """, (
+                    referrer[0],
+                    username,
+                    referral_input,
+                    "PENDING",
+                    datetime.now().strftime("%d-%m-%Y %H:%M")
+                ))
 
         conn.commit()
         conn.close()
 
         session.pop("signup_data", None)
-        session["user"] = data["username"]
+        session["user"] = username
+
         return redirect("/")
 
     return render_template_string(STYLE + """
@@ -2614,6 +2656,9 @@ def verify_otp():
                 <input name="otp" placeholder="Enter OTP" required>
                 <button>VERIFY</button>
             </form>
+
+            <br>
+            <a href="/signup">Change Email / Phone</a>
 
         </div>
     </div>
@@ -6093,6 +6138,208 @@ def referral_history():
         <a href="/refer" class="btn">Back</a>
     </div>
     """, pending=pending, completed=completed)
+
+@app.route("/website")
+def website_home():
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FireZone Esport</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #080808, #1b1b1b);
+            color: white;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 430px;
+            margin: auto;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .logo {
+            width: 110px;
+            height: 110px;
+            border-radius: 25px;
+            background: #ff3b00;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            margin: 25px auto 15px;
+            box-shadow: 0 0 25px rgba(255, 60, 0, 0.6);
+        }
+
+        h1 {
+            font-size: 30px;
+            color: #ffcc00;
+            margin-bottom: 8px;
+        }
+
+        .tagline {
+            font-size: 15px;
+            color: #ddd;
+            margin-bottom: 22px;
+            line-height: 1.5;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 18px;
+            padding: 18px;
+            margin: 15px 0;
+            text-align: left;
+        }
+
+        .card h2 {
+            font-size: 20px;
+            color: #ffcc00;
+            margin-bottom: 10px;
+        }
+
+        .card p {
+            font-size: 14px;
+            color: #eee;
+            line-height: 1.6;
+        }
+
+        .features {
+            margin-top: 10px;
+        }
+
+        .features div {
+            background: rgba(0,0,0,0.25);
+            padding: 12px;
+            border-radius: 12px;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin-top: 14px;
+            border-radius: 14px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        .download {
+            background: #ff3b00;
+            color: white;
+            box-shadow: 0 0 18px rgba(255, 59, 0, 0.5);
+        }
+
+        .openapp {
+            background: #ffcc00;
+            color: black;
+        }
+
+        .support {
+            background: #1f1f1f;
+            color: white;
+            border: 1px solid #444;
+        }
+
+        .footer {
+            margin-top: 25px;
+            font-size: 12px;
+            color: #aaa;
+            line-height: 1.5;
+        }
+
+        @media (min-width: 600px) {
+            .container {
+                max-width: 520px;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="logo">🎮</div>
+
+        <h1>FireZone Esport</h1>
+
+        <p class="tagline">
+            Play tournaments, join matches, check results and manage your profile easily.
+        </p>
+
+        <a class="btn openapp" href="/">Open App</a>
+
+        <a class="btn download" href="/download">Download App</a>
+
+        <div class="card">
+            <h2>🔥 About App</h2>
+            <p>
+                FireZone Esport is a mobile gaming platform where players can join matches,
+                view room details, submit results and track their rewards.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>⭐ Features</h2>
+
+            <div class="features">
+                <div>✅ Easy mobile login</div>
+                <div>✅ Join tournaments</div>
+                <div>✅ Match room ID and password</div>
+                <div>✅ Result screenshot submit</div>
+                <div>✅ Wallet and profile system</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📱 Mobile Friendly</h2>
+            <p>
+                This website is specially designed for mobile users. Open it in Chrome and use it like an app.
+            </p>
+        </div>
+
+        <a class="btn support" href="mailto:support@example.com">Contact Support</a>
+
+        <div class="footer">
+            © 2026 FireZone Esport <br>
+            All rights reserved.
+        </div>
+
+    </div>
+
+</body>
+</html>
+    """)
+
+@app.route("/download")
+def download_app():
+    return send_from_directory(
+        "static",
+        "firezone.apk",
+        as_attachment=True
+    )
 
 # =========================================
 # RUN

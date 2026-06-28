@@ -5761,10 +5761,17 @@ def profile():
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
 
-    c.execute("SELECT username, phone, balance, referral_code FROM users WHERE username=?", (session["user"],))
-    user = c.fetchone()
+    c.execute("""
+    SELECT username, phone, email, game_name, referral_code
+    FROM users
+    WHERE username=?
+    """, (username,))
 
+    user = c.fetchone()
     conn.close()
+
+    if not user:
+        return redirect("/login")
 
     balance = get_balance(username)
 
@@ -5783,12 +5790,27 @@ def profile():
             📱 Phone : {{user[1]}}
 
             <br><br>
-                                  GAME NAME : {{user[2]}}
-           <br><br>
-            💰 Balance : ₹{{balance}}
-            <p>🎁 Referral No: <b>{{user[3]}}</b></p>
 
-            <a href="/refer" class="btn">Refer & Earn</a>
+            📧 Email : {{user[2]}}
+
+            <br><br>
+
+            🎮 Game Name : {{user[3]}}
+
+            <br><br>
+
+            💰 Balance : ₹{{balance}}
+
+            <br><br>
+
+            🎁 Referral Code : <b>{{user[4]}}</b>
+
+            <br><br>
+
+            <a class="mode-btn" href="/refer">Refer & Earn</a>
+
+            <a class="mode-btn" href="/">BACK</a>
+
         </div>
 
     </div>

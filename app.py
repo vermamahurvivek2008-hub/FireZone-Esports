@@ -984,197 +984,800 @@ def get_entry_fee(mode):
 
 @app.route("/")
 def home():
-    delete_old_matches()
+
     if "user" not in session:
         return redirect("/login")
 
-    balance = get_balance(session["user"])
+    username = session["user"]
+    balance = get_balance(username)
 
-    return render_template_string(STYLE + """
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FireZone Esports</title>
 
-    <div class="overlay">
+    <style>
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+            font-family:Arial, sans-serif;
+        }
 
-        <h1>🔥 FIREZONE ESPORTS</h1>
-        <div class="mode-card">
-           <img src="/static/images/admin mode.png">
-                                  <div class="mode-title">
-                                  <a href="/admin_mode">
-                                    ADMIN TOURNAMENT MODE
-                                  </a>
-                            </div>
-                        </div>
-        <div class="mode-card">
-            <img src="/static/images/user mode.jpg">
-                                  <div class="mode-title">
-                                  <a href="/user_mode">
-                                   USER CREATE ROOM MODE
-                                  </a>
-                                </div>
-                            </div>
-        <h3>balance:{{balance}}</h3>
-        <a class="mode-btn" href="/recharge">RECHARGE</a>
+        body{
+            min-height:100vh;
+            background:
+                linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.92)),
+                url('/static/images/bg.png');
+            background-size:cover;
+            background-position:center;
+            color:white;
+        }
 
-        <a class="mode-btn" href="/withdrawal">WITHDRAWAL</a>
+        .app{
+            width:100%;
+            max-width:430px;
+            margin:auto;
+            min-height:100vh;
+            padding:22px 18px 95px;
+            background:linear-gradient(180deg,rgba(2,8,16,0.96),rgba(0,0,0,0.97));
+            position:relative;
+            overflow:hidden;
+        }
 
-        <a class="mode-btn" href="/results">RESULTS</a>
+        .app::before{
+            content:"";
+            position:absolute;
+            top:-120px;
+            right:-120px;
+            width:260px;
+            height:260px;
+            background:#00eaff;
+            filter:blur(90px);
+            opacity:0.22;
+        }
 
-        <a class="mode-btn" href="/profile">PROFILE</a>
-                                  <a class="mode-btn" href="/support">SUPPORT</a>
-                                  <a class="mode-btn" href="/report">REPORT PLAYER</a>
-                                  <a class="mode-btn" href="/my_matches">MY MATCHES</a>
-         <a class="mode-btn" href="/daily_reward">DAILY_REWARD</a>
-        <a class="mode-btn" href="/leaderboard">LEADERBOARD</a>
+        .app::after{
+            content:"";
+            position:absolute;
+            bottom:100px;
+            left:-120px;
+            width:260px;
+            height:260px;
+            background:#ff6600;
+            filter:blur(90px);
+            opacity:0.18;
+        }
 
-                                  <a class="mode-btn" href="/notifications">NOTIFICATIONS</a>
-                                  <br><br>
+        .content{
+            position:relative;
+            z-index:2;
+        }
 
-                                  <a href="/privacy" class="btn">Privacy Policy</a>
+        .top{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:22px;
+        }
 
-                                  <a href="/terms" class="btn">Terms & Conditions</a>
+        .user-box{
+            display:flex;
+            align-items:center;
+            gap:12px;
+        }
 
-                                  <a href="/contact" class="btn">Contact</a>
-                                  <a class="mode-btn" href="/logout">LOGOUT</a>
+        .avatar{
+            width:46px;
+            height:46px;
+            border-radius:50%;
+            border:1px solid #00eaff;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            font-size:24px;
+            background:rgba(0,234,255,0.08);
+            box-shadow:0 0 14px rgba(0,234,255,0.45);
+        }
+
+        .hello{
+            font-size:23px;
+            font-weight:900;
+            letter-spacing:0.5px;
+        }
+
+        .welcome{
+            font-size:13px;
+            color:#b8c7d8;
+            margin-top:4px;
+        }
+
+        .top-icons{
+            display:flex;
+            gap:16px;
+            font-size:25px;
+            color:#00eaff;
+        }
+
+        .balance-card{
+            background:rgba(4,20,35,0.92);
+            border:1px solid rgba(0,234,255,0.35);
+            border-radius:18px;
+            padding:18px;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:26px;
+            box-shadow:0 0 18px rgba(0,234,255,0.12);
+        }
+
+        .balance-left{
+            display:flex;
+            gap:14px;
+            align-items:center;
+        }
+
+        .coin{
+            width:50px;
+            height:50px;
+            border-radius:50%;
+            background:linear-gradient(135deg,#fff15a,#ff9f00);
+            color:#111;
+            font-size:30px;
+            font-weight:900;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            box-shadow:0 0 16px #ffb000;
+        }
+
+        .balance-title{
+            font-size:12px;
+            color:#9aa8b8;
+            letter-spacing:1px;
+            font-weight:700;
+        }
+
+        .balance-amount{
+            font-size:30px;
+            font-weight:900;
+            margin-top:4px;
+        }
+
+        .plus-btn{
+            width:48px;
+            height:48px;
+            border:1px solid #00eaff;
+            border-radius:14px;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            color:#00eaff;
+            font-size:35px;
+            text-decoration:none;
+            background:rgba(0,234,255,0.06);
+        }
+
+        .hero-card{
+            border-radius:22px;
+            padding:22px;
+            margin-bottom:28px;
+            background:
+                linear-gradient(135deg,rgba(0,0,0,0.86),rgba(2,20,55,0.88)),
+                radial-gradient(circle at right,#6c00ff66,transparent 50%);
+            border:1px solid rgba(0,234,255,0.7);
+            box-shadow:
+                0 0 24px rgba(0,234,255,0.22),
+                inset 0 0 25px rgba(115,0,255,0.22);
+        }
+
+        .hero-title{
+            font-size:36px;
+            font-weight:900;
+            letter-spacing:1px;
+            margin-bottom:14px;
+            text-shadow:0 0 12px #00eaff;
+        }
+
+        .hero-text{
+            font-size:18px;
+            line-height:1.5;
+            color:#eee;
+            margin-bottom:16px;
+        }
+
+        .yellow{
+            color:#ffcc00;
+            font-weight:900;
+        }
+
+        .hero-tags{
+            display:flex;
+            gap:10px;
+            margin-bottom:18px;
+        }
+
+        .tag{
+            flex:1;
+            padding:10px;
+            border-radius:12px;
+            background:rgba(0,0,0,0.45);
+            border:1px solid rgba(0,234,255,0.25);
+            font-size:12px;
+            color:#dbefff;
+            text-align:center;
+        }
+
+        .create-btn{
+            display:block;
+            padding:16px;
+            border-radius:15px;
+            text-align:center;
+            text-decoration:none;
+            color:white;
+            font-size:21px;
+            font-weight:900;
+            letter-spacing:2px;
+            background:linear-gradient(90deg,#00eaff,#006eff,#4300ff);
+            box-shadow:0 0 22px rgba(0,120,255,0.75);
+        }
+
+        .section-title{
+            color:#00eaff;
+            font-size:25px;
+            font-weight:900;
+            margin-bottom:18px;
+            letter-spacing:1px;
+        }
+
+        .grid{
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:14px;
+        }
+
+        .action-card{
+            min-height:112px;
+            border-radius:18px;
+            background:rgba(4,18,30,0.94);
+            border:1px solid rgba(0,234,255,0.35);
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            text-decoration:none;
+            color:white;
+            box-shadow:0 0 16px rgba(0,234,255,0.12);
+        }
+
+        .action-icon{
+            font-size:36px;
+            margin-bottom:10px;
+        }
+
+        .action-text{
+            font-size:13px;
+            font-weight:900;
+            text-align:center;
+        }
+
+        .bottom-nav{
+            position:fixed;
+            left:50%;
+            bottom:0;
+            transform:translateX(-50%);
+            width:100%;
+            max-width:430px;
+            height:78px;
+            background:rgba(2,10,18,0.98);
+            border-top:1px solid rgba(0,234,255,0.35);
+            display:grid;
+            grid-template-columns:repeat(5,1fr);
+            z-index:99;
+            box-shadow:0 -8px 25px rgba(0,0,0,0.6);
+        }
+
+        .nav-item{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            text-decoration:none;
+            color:#9aa8b8;
+            font-size:11px;
+            font-weight:800;
+        }
+
+        .nav-item span{
+            font-size:25px;
+            margin-bottom:4px;
+        }
+
+        .nav-active{
+            color:#00eaff;
+        }
+
+        @media(min-width:700px){
+            .app{
+                box-shadow:0 0 35px rgba(0,234,255,0.28);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="app">
+    <div class="content">
+
+        <div class="top">
+            <div class="user-box">
+                <div class="avatar">👤</div>
+                <div>
+                    <div class="hello">HELLO {{username}}</div>
+                    <div class="welcome">Welcome to FireZone Esports</div>
+                </div>
+            </div>
+
+            <div class="top-icons">
+                <span>🔍</span>
+                <span>🔔</span>
+            </div>
+        </div>
+
+        <div class="balance-card">
+            <div class="balance-left">
+                <div class="coin">₹</div>
+                <div>
+                    <div class="balance-title">TOTAL BALANCE</div>
+                    <div class="balance-amount">₹ {{balance}}</div>
+                </div>
+            </div>
+
+            <a href="/recharge" class="plus-btn">+</a>
+        </div>
+
+        <div class="hero-card">
+            <div class="hero-title">CREATE MATCH</div>
+
+            <div class="hero-text">
+                Build your room, invite players &
+                <span class="yellow">win rewards!</span>
+            </div>
+
+            <div class="hero-tags">
+                <div class="tag">👥 Play with friends</div>
+                <div class="tag">🏆 Win Rewards</div>
+            </div>
+
+            <a href="/user_mode" class="create-btn">CREATE NOW →</a>
+        </div>
+
+        <div class="section-title">QUICK ACTIONS</div>
+
+        <div class="grid">
+
+            <a href="/admin_mode" class="action-card">
+                <div class="action-icon">🎮</div>
+                <div class="action-text">JOIN MATCH</div>
+            </a>
+
+            <a href="/recharge" class="action-card">
+                <div class="action-icon">🏆</div>
+                <div class="action-text">RECHARGE</div>
+            </a>
+
+            <a href="/withdrawal" class="action-card">
+                <div class="action-icon">💵</div>
+                <div class="action-text">WITHDRAW</div>
+            </a>
+
+            <a href="/leaderboard" class="action-card">
+                <div class="action-icon">🥇</div>
+                <div class="action-text">LEADERBOARD</div>
+            </a>
+
+            <a href="/refer" class="action-card">
+                <div class="action-icon">👥</div>
+                <div class="action-text">REFER & EARN</div>
+            </a>
+
+            <a href="/support" class="action-card">
+                <div class="action-icon">🎧</div>
+                <div class="action-text">SUPPORT</div>
+            </a>
+
+        </div>
 
     </div>
+</div>
 
-    """,
-    user=session["user"],
-    balance=session.get("balance",0)
+<div class="bottom-nav">
+
+    <a href="/" class="nav-item nav-active">
+        <span>🏠</span>
+        HOME
+    </a>
+
+    <a href="/my_matches" class="nav-item">
+        <span>⚔️</span>
+        MATCHES
+    </a>
+
+    <a href="/user_mode" class="nav-item">
+        <span>➕</span>
+        CREATE
+    </a>
+
+    <a href="/recharge" class="nav-item">
+        <span>👛</span>
+        WALLET
+    </a>
+
+    <a href="/profile" class="nav-item">
+        <span>👤</span>
+        PROFILE
+    </a>
+
+</body>
+</html>
+""",
+    username=username,
+    balance=balance
     )
 
 #admin route
 @app.route("/admin_mode")
 def admin_mode():
+
     if "user" not in session:
         return redirect("/login")
 
+    modes = [
+        ("SOLO BR", "solo br", "solo br.png", "Solo battle royale matches"),
+        ("DUO BR", "duo br", "duo br.png", "Duo battle royale matches"),
+        ("1v1 CS CHALLENGE", "1v1 cs challenge", "1v1 cs challenge.png", "One versus one challenge"),
+        ("2v2 CS CHALLENGE", "2v2 cs challenge", "2v2 cs challenge.png", "Two versus two challenge"),
+        ("4v4 CS CHALLENGE", "4v4 cs challenge", "4v4 cs challenge.png", "Squad versus squad challenge"),
+        ("LONE WOLF", "lone wolf", "lone wolf.png", "Fast lone wolf fights"),
+        ("SNIPER ONLY BR", "sniper only br", "sniper only br.png", "Sniper only battle mode"),
+        ("BOOYAH ONLY BR", "booyah only br", "booyah only br.png", "Booyah only special mode")
+    ]
 
-    return render_template_string(STYLE + RULES + """
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Tournament Mode</title>
 
-    <div class="overlay">
+    <style>
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+            font-family:Arial, sans-serif;
+        }
 
-        <h1>🔥 ADMIN TOURNAMENT MODE 🔥</h1>
+        body{
+            min-height:100vh;
+            background:
+                linear-gradient(rgba(0,0,0,0.78), rgba(0,0,0,0.94)),
+                url('/static/images/bg.png');
+            background-size:cover;
+            background-position:center;
+            color:white;
+        }
 
+        .app{
+            width:100%;
+            max-width:430px;
+            margin:auto;
+            min-height:100vh;
+            padding:22px 18px 95px;
+            background:linear-gradient(180deg,rgba(2,8,16,0.96),rgba(0,0,0,0.98));
+            position:relative;
+            overflow:hidden;
+        }
 
-        <!-- SOLO BR -->
+        .app::before{
+            content:"";
+            position:absolute;
+            top:-120px;
+            right:-120px;
+            width:260px;
+            height:260px;
+            background:#00eaff;
+            filter:blur(90px);
+            opacity:0.22;
+        }
 
-        <div class="mode-card">
-        <img src="/static/images/solo br.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/solo br">
-                                       SOLO BR
-                                  </a>
-                        </div>
-                    </div>
+        .app::after{
+            content:"";
+            position:absolute;
+            bottom:100px;
+            left:-120px;
+            width:260px;
+            height:260px;
+            background:#ff6600;
+            filter:blur(90px);
+            opacity:0.18;
+        }
 
+        .content{
+            position:relative;
+            z-index:2;
+        }
 
-        <!-- DUO BR -->
+        .top{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            margin-bottom:22px;
+        }
 
-        <div class="mode-card">
+        .back{
+            width:45px;
+            height:45px;
+            border-radius:50%;
+            border:1px solid #00eaff;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#00eaff;
+            text-decoration:none;
+            font-size:22px;
+            background:rgba(0,234,255,0.08);
+            box-shadow:0 0 14px rgba(0,234,255,0.35);
+        }
 
-        <img src="/static/images/duo br.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/duo br">
+        .title-box{
+            text-align:center;
+            flex:1;
+        }
 
-                DUO BR
-                                  </a>
-                        </div>
+        .title{
+            font-size:25px;
+            font-weight:900;
+            color:#00eaff;
+            text-shadow:0 0 14px #00eaff;
+            letter-spacing:1px;
+        }
+
+        .subtitle{
+            margin-top:5px;
+            font-size:12px;
+            color:#b8c7d8;
+        }
+
+        .admin-badge{
+            width:45px;
+            height:45px;
+            border-radius:50%;
+            border:1px solid #ffcc00;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:22px;
+            background:rgba(255,204,0,0.08);
+            box-shadow:0 0 14px rgba(255,204,0,0.35);
+        }
+
+        .hero{
+            border-radius:22px;
+            padding:18px;
+            margin-bottom:24px;
+            background:
+                linear-gradient(135deg,rgba(0,0,0,0.86),rgba(35,8,8,0.88)),
+                radial-gradient(circle at right,#ff660055,transparent 50%);
+            border:1px solid rgba(0,234,255,0.55);
+            box-shadow:
+                0 0 24px rgba(0,234,255,0.20),
+                inset 0 0 25px rgba(255,102,0,0.18);
+        }
+
+        .hero h2{
+            font-size:30px;
+            font-weight:900;
+            margin-bottom:8px;
+            text-shadow:0 0 12px #ff6600;
+        }
+
+        .hero p{
+            font-size:14px;
+            color:#dbefff;
+            line-height:1.5;
+        }
+
+        .mode-list{
+            display:flex;
+            flex-direction:column;
+            gap:18px;
+        }
+
+        .mode-card{
+            display:block;
+            text-decoration:none;
+            color:white;
+            border-radius:22px;
+            overflow:hidden;
+            background:rgba(4,18,30,0.94);
+            border:1px solid rgba(0,234,255,0.45);
+            box-shadow:
+                0 0 18px rgba(0,234,255,0.18),
+                inset 0 0 18px rgba(0,234,255,0.08);
+            transition:0.25s;
+        }
+
+        .mode-card:hover{
+            transform:translateY(-4px) scale(1.02);
+            box-shadow:
+                0 0 28px rgba(0,234,255,0.55),
+                0 0 18px rgba(255,102,0,0.25);
+        }
+
+        .mode-img{
+            width:100%;
+            height:165px;
+            object-fit:cover;
+            display:block;
+        }
+
+        .mode-info{
+            padding:14px;
+            background:linear-gradient(180deg,rgba(0,0,0,0.72),rgba(0,0,0,0.95));
+        }
+
+        .mode-name{
+            font-size:22px;
+            font-weight:900;
+            color:#ffea00;
+            text-align:center;
+            text-shadow:0 0 10px rgba(255,234,0,0.65);
+        }
+
+        .mode-desc{
+            margin-top:7px;
+            font-size:12px;
+            color:#b8c7d8;
+            text-align:center;
+        }
+
+        .free-tag{
+            position:absolute;
+            top:10px;
+            left:10px;
+            padding:6px 10px;
+            border-radius:20px;
+            background:rgba(0,234,255,0.18);
+            border:1px solid #00eaff;
+            color:#00eaff;
+            font-size:11px;
+            font-weight:900;
+        }
+
+        .card-img-wrap{
+            position:relative;
+        }
+
+        .bottom-nav{
+            position:fixed;
+            left:50%;
+            bottom:0;
+            transform:translateX(-50%);
+            width:100%;
+            max-width:430px;
+            height:78px;
+            background:rgba(2,10,18,0.98);
+            border-top:1px solid rgba(0,234,255,0.35);
+            display:grid;
+            grid-template-columns:repeat(5,1fr);
+            z-index:99;
+            box-shadow:0 -8px 25px rgba(0,0,0,0.6);
+        }
+
+        .nav-item{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+            text-decoration:none;
+            color:#9aa8b8;
+            font-size:11px;
+            font-weight:800;
+        }
+
+        .nav-item span{
+            font-size:25px;
+            margin-bottom:4px;
+        }
+
+        .nav-active{
+            color:#00eaff;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="app">
+    <div class="content">
+
+        <div class="top">
+            <a href="/" class="back">←</a>
+
+            <div class="title-box">
+                <div class="title">ADMIN MODE</div>
+                <div class="subtitle">Official tournament matches</div>
             </div>
 
+            <div class="admin-badge">🔥</div>
+        </div>
 
-        <!-- 1V1 -->
+        <div class="hero">
+            <h2>JOIN TOURNAMENT</h2>
+            <p>
+                Select your favourite mode, join match, check slot,
+                and compete with other players.
+            </p>
+        </div>
 
-        <div class="mode-card">
+        <div class="mode-list">
 
-            <img src="/static/images/1v1 cs challenge.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/1v1 cs challenge">
+            {% for m in modes %}
+            <a href="/mode/{{m[1]}}" class="mode-card">
 
-            1v1 CS CHALLENGE
-                                  </a>
-                        </div>
-            </div>
+                <div class="card-img-wrap">
+                    <div class="free-tag">FREE FIRE</div>
+                    <img class="mode-img" src="/static/images/{{m[2]}}">
+                </div>
 
+                <div class="mode-info">
+                    <div class="mode-name">{{m[0]}}</div>
+                    <div class="mode-desc">{{m[3]}}</div>
+                </div>
 
-        <!-- 2V2 -->
+            </a>
+            {% endfor %}
 
-        <div class="mode-card">
-
-            <img src="/static/images/2v2 cs challenge.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/2v2 cs challenge">
-
-            2v2 CS CHALLENGE
-                                  </a>
-                        </div>
-            </div>
-
-
-        <!-- 4V4 -->
-
-        <div class="mode-card">
-
-            <img src="/static/images/4v4 cs challenge.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/4v4 cs challenge">
-
-            4v4 CS CHALLENGE
-                                  </a>
-                        </div>
-            </div>
-
-
-        <!-- LONE WOLF -->
-
-        <div class="mode-card">
-
-            <img src="/static/images/lone wolf.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/lone wolf">
-
-            LONE WOLF
-                                  </a>
-                        </div>
-            </div>
-
-
-        <!-- SNIPER -->
-
-        <div class="mode-card">
-
-            <img src="/static/images/sniper only br.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/sniper only br">
-
-                SNIPER ONLY BR
-                                  </a>
-                            </div>
-            </div>
-
-
-        <!-- BOOYAH -->
-
-        <div class="mode-card">
-
-            <img src="/static/images/booyah only br.png">
-                                  <div class="mode-title">
-                                  <a href="/mode/booyah only br">
-
-                BOOYAH ONLY BR
-                                  </a>
-                            </div>
-            </div>
-                                  <a class="mode-btn"
-                                  href="/create_free_match">
-                                  CREATE FREE MATCH
-                                  </a>
-
-
-        <a class="mode-btn" href="/">⬅ BACK</a>
+        </div>
 
     </div>
+</div>
 
-    """
+<div class="bottom-nav">
+
+    <a href="/" class="nav-item">
+        <span>🏠</span>
+        HOME
+    </a>
+
+    <a href="/my_matches" class="nav-item nav-active">
+        <span>⚔️</span>
+        MATCHES
+    </a>
+
+    <a href="/user_mode" class="nav-item">
+        <span>➕</span>
+        CREATE
+    </a>
+
+    <a href="/recharge" class="nav-item">
+        <span>👛</span>
+        WALLET
+    </a>
+
+    <a href="/profile" class="nav-item">
+        <span>👤</span>
+        PROFILE
+    </a>
+
+</div>
+
+</body>
+</html>
+""",
+    modes=modes
     )
 #admin result route
 @app.route("/admin/results")

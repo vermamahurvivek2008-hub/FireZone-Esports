@@ -39,29 +39,37 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.secret_key = "firezone_secret"
+
 def send_otp_email(receiver_email, otp):
-    sender_email = os.environ.get("firezoneesport001@gmail.com")
-    app_password = os.environ.get("uylxohohzafhhcng")
-
-    subject = "FireZone Esport OTP Verification"
-    body = f"Your OTP is: {otp}"
-
-    msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
 
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
+        import smtplib
+        from email.mime.text import MIMEText
+
+        sender_email = "firezoneesport001@gmail.com"
+        app_password = "uylxohohzafhhcng"
+
+        subject = "FireZone Esports OTP"
+        body = f"Your OTP is: {otp}"
+
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = sender_email
+        msg["To"] = receiver_email
+
+        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
         server.starttls()
         server.login(sender_email, app_password)
         server.sendmail(sender_email, receiver_email, msg.as_string())
         server.quit()
+
         return True
+
     except Exception as e:
-        print("Email OTP error:", e)
-        return False
+        print("EMAIL OTP ERROR:", e)
+        return False  
+
+
 @app.route("/manifest.json")
 def manifest():
     return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
@@ -2124,7 +2132,7 @@ def admin_update_room(match_id):
         conn.commit()
         conn.close()
 
-        return redirect("/admin_dashboard")
+        return redirect("/admin/dashboard")
 
     c.execute("""
     SELECT mode, slot, room_id, password
@@ -2765,7 +2773,7 @@ def submit_room():
 def delete_tournament(id):
     conn = sqlite3.connect("database.db")
     c = conn.cursor()
-    c.execute("DELETE FROM tournaments WHERE id=?",(id,))
+    c.execute("DELETE FROM tournament WHERE id=?",(id,))
     conn.commit()
     conn.close()
     return redirect("/admin")
@@ -3129,6 +3137,17 @@ def signup():
         conn.close()
 
         otp = str(random.randint(100000, 999999))
+         
+        sent = send_otp_email(email, otp)
+
+        if not sent:
+           return render_template_string(STYLE + """
+    <div class="overlay">
+        <h2>❌ OTP Send Failed</h2>
+        <p>Email OTP send nahi ho paya. Please thodi der baad try karo.</p>
+        <a href="/signup"><button>Try Again</button></a>
+    </div>
+    """) 
 
         session["signup_data"] = {
             "username": username,
@@ -3140,13 +3159,7 @@ def signup():
             "my_referral_code": my_referral_code,
             "otp": otp
         }
-
-        sent = send_otp_email(email, otp)
-
-        if sent:
-          return redirect("/verify_otp")
-        else:
-         return "❌ OTP email send nahi hua. Terminal me Email OTP error check karo."
+        return redirect("/verify_otp")
     return render_template_string(STYLE + """
 
     <div class="overlay">

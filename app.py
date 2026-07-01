@@ -122,6 +122,12 @@ def send_otp_email(receiver_email, otp):
     except Exception as e:
         print("EMAIL OTP ERROR:", repr(e), flush=True)
         return False
+@app.route("/check_env")
+def check_env():
+    key = os.environ.get("RESEND_API_KEY")
+    if key:
+        return "✅ RESEND_API_KEY loaded"
+    return "❌ RESEND_API_KEY missing"
 
 
 @app.route("/manifest.json")

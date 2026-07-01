@@ -40,34 +40,88 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 app.secret_key = "firezone_secret"
 
+#===========================================
+#firezone - esport
+#===========================================
+import random
+from flask import Flask, request, redirect, session, render_template_string
+import sqlite3
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import smtplib
+from email.mime.text import MIMEText
+import string
+import requests
+import os
+from flask import Flask
+from flask import send_from_directory
+from flask import url_for, session
+import hashlib
+from datetime import datetime, timedelta
+from functools  import wraps
+from flask import send_from_directory
+
+def admin_required(f):
+    @wraps(f)
+    def wrap(*args,**kwargs):
+        if "admin" not in session:
+            return redirect("/admin")
+        return f(*args,**kwargs)
+    return wrap
+
+# =========================================
+# APP START
+# =========================================
+
+app = Flask(__name__)
+UPLOAD_FOLDER = "static/uploads"
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+app.secret_key = "firezone_secret"
 def send_otp_email(receiver_email, otp):
-
     try:
-        import smtplib
-        from email.mime.text import MIMEText
+        import requests
+        import os
 
-        sender_email = "firezoneesport001@gmail.com"
-        app_password = "uylxohohzafhhcng"
+        api_key = os.environ.get("re_h3WQkbEo_AXgPS6XViTauwoCCgaUC9j85")
 
-        subject = "FireZone Esports OTP"
-        body = f"Your OTP is: {otp}"
+        if not api_key:
+            print("EMAIL OTP ERROR: RESEND_API_KEY missing", flush=True)
+            return False
 
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = sender_email
-        msg["To"] = receiver_email
+        url = "https://api.resend.com/emails"
 
-        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
-        server.starttls()
-        server.login(sender_email, app_password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.quit()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
-        return True
+        data = {
+            "from": "FireZone Esports <onboarding@resend.dev>",
+            "to": [receiver_email],
+            "subject": "FireZone Esports OTP",
+            "html": f"""
+            <h2>FireZone Esports OTP</h2>
+            <p>Your OTP is:</p>
+            <h1>{otp}</h1>
+            """
+        }
+
+        response = requests.post(url, headers=headers, json=data, timeout=20)
+
+        print("RESEND STATUS:", response.status_code, response.text, flush=True)
+
+        if response.status_code in [200, 201]:
+            return True
+
+        return False
 
     except Exception as e:
-        print("EMAIL OTP ERROR:", e)
-        return False  
+        print("EMAIL OTP ERROR:", repr(e), flush=True)
+        return False
 
 
 @app.route("/manifest.json")

@@ -86,7 +86,9 @@ def send_otp_email(receiver_email, otp):
         import requests
         import os
 
-        api_key = os.environ.get("re_h3WQkbEo_AXgPS6XViTauwoCCgaUC9j85")
+        api_key = os.environ.get("RESEND_API_KEY")
+        print("ENV RESEND_API_KEY =", api_key, flush=True)
+        print("ALL ENV KEYS =", [k for k in os.environ.keys() if "RESEND" in k], flush=True)
 
         if not api_key:
             print("EMAIL OTP ERROR: RESEND_API_KEY missing", flush=True)

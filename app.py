@@ -3290,10 +3290,40 @@ def verify_otp():
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
+        c.execute("SELECT phone FROM users WHERE phone=?", (phone,))
+        existing_phone = c.fetchone()
+
+        if existing_phone:
+           conn.close()
+           session.pop("signup_data", None)
+           return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+            <h1>❌ Phone number already registered</h1>
+            <a class="mode-btn" href="/signup">SIGNUP AGAIN</a>
+        </div>
+    </div>
+    """)
+
+        c.execute("SELECT email FROM users WHERE email=?", (email,))
+        existing_email = c.fetchone()
+
+        if existing_email:
+          conn.close()
+          session.pop("signup_data", None)
+          return render_template_string(STYLE + """
+    <div class="overlay">
+        <div class="box">
+            <h1>❌ Email already registered</h1>
+            <a class="mode-btn" href="/signup">SIGNUP AGAIN</a>
+        </div>
+    </div>
+    """)
+
         c.execute("""
-        INSERT INTO users(username, password, phone,email, game_name, referral_code, referred_by)
-        VALUES(?,?,?,?,?,?,?)
-        """, (username, password, phone,email, game_name, my_referral_code, referral_input))
+INSERT INTO users(username, password, phone, email, game_name, referral_code, referred_by)
+VALUES(?,?,?,?,?,?,?)
+""", (username, password, phone, email, game_name, my_referral_code, referral_input))
 
         c.execute("""
         INSERT OR IGNORE INTO wallet(username,balance)

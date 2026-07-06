@@ -3539,6 +3539,140 @@ def reset_password():
     </html>
     """)
 
+@app.route("/forgot_username", methods=["GET","POST"])
+def forgot_username():
+
+    if request.method=="POST":
+
+        email=request.form["email"].strip()
+
+        conn=sqlite3.connect("database.db")
+        c=conn.cursor()
+
+        c.execute(
+            "SELECT username FROM users WHERE email=?",
+            (email,)
+        )
+
+        user=c.fetchone()
+
+        conn.close()
+
+        if not user:
+            return render_template_string("""
+            <h2>Email not found</h2>
+            <a href="/forgot_username">Try Again</a>
+            """)
+
+        otp=str(random.randint(100000,999999))
+
+        session["forgot_username_email"]=email
+        session["forgot_username_otp"]=otp
+
+        send_otp_email(email,otp)
+
+        return redirect("/verify_username_otp")
+
+    return render_template_string("""
+
+    <center>
+
+    <h2>Forgot Username</h2>
+
+    <form method="POST">
+
+    <input
+    type="email"
+    name="email"
+    placeholder="Enter Email"
+    required>
+
+    <br><br>
+
+    <button>
+
+    Send OTP
+
+    </button>
+
+    </form>
+
+    </center>
+
+    """)
+
+@app.route("/verify_username_otp", methods=["GET","POST"])
+def verify_username_otp():
+
+    if "forgot_username_email" not in session:
+        return redirect("/forgot_username")
+
+    if request.method == "POST":
+
+        entered_otp = request.form["otp"].strip()
+
+        if entered_otp != session.get("forgot_username_otp"):
+            return render_template_string("""
+            <center>
+            <h2 style="color:red;">Wrong OTP</h2>
+            <a href="/verify_username_otp">Try Again</a>
+            </center>
+            """)
+
+        conn = sqlite3.connect("database.db")
+        c = conn.cursor()
+
+        c.execute(
+            "SELECT username FROM users WHERE email=?",
+            (session["forgot_username_email"],)
+        )
+
+        user = c.fetchone()
+
+        conn.close()
+
+        session.pop("forgot_username_email", None)
+        session.pop("forgot_username_otp", None)
+
+        return render_template_string("""
+        <center style="margin-top:100px;">
+        <h2>Your Username</h2>
+
+        <h1 style="color:green;">{{username}}</h1>
+
+        <br>
+
+        <a href="/login">
+            Back To Login
+        </a>
+
+        </center>
+        """, username=user[0])
+
+    return render_template_string("""
+    <center style="margin-top:100px;">
+
+    <h2>Verify OTP</h2>
+
+    <form method="POST">
+
+    <input
+    type="text"
+    name="otp"
+    placeholder="Enter OTP"
+    required>
+
+    <br><br>
+
+    <button type="submit">
+        Verify OTP
+    </button>
+
+    </form>
+
+    </center>
+    """)
+
 # =========================================
 # LOGIN
 # =========================================
@@ -3596,6 +3730,12 @@ def login():
                                   <br><br>
             <a href="/forgot_password" style="color:#00ffff;text-decoration:none;">
                Forgot Password?
+            </a>
+                                  <br><br>
+
+            <a href="/forgot_username"
+            style="color:#00ffff;text-decoration:none;">
+              Forgot Username?
             </a>
 
         </div>

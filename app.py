@@ -3378,6 +3378,166 @@ VALUES(?,?,?,?,?,?,?)
         </div>
     </div>
     """)
+#forget password
+@app.route("/forgot_password", methods=["GET", "POST"])
+def forgot_password():
+
+    if request.method == "POST":
+
+        email = request.form["email"].strip()
+
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+
+        c.execute("SELECT * FROM users WHERE email=?", (email,))
+        user = c.fetchone()
+
+        conn.close()
+
+        if not user:
+            return "Email not found"
+
+        otp = str(random.randint(100000,999999))
+
+        session["forgot_email"] = email
+        session["forgot_otp"] = otp
+
+        send_otp_email(email, otp)
+
+        return redirect("/verify_forgot_otp")
+
+    return render_template_string("""
+    <html>
+    <body style="background:black;color:white;text-align:center;margin-top:100px;">
+
+    <h2>Forgot Password</h2>
+
+    <form method="POST">
+
+    <input
+        type="email"
+        name="email"
+        placeholder="Enter Email"
+        required>
+
+    <br><br>
+
+    <button type="submit">
+        Send OTP
+    </button>
+
+    </form>
+
+    </body>
+    </html>
+    """)
+#verify otp password
+@app.route("/verify_forgot_otp", methods=["GET", "POST"])
+def verify_forgot_otp():
+
+    if "forgot_email" not in session:
+        return redirect("/forgot_password")
+
+    if request.method == "POST":
+
+        entered_otp = request.form["otp"].strip()
+
+        if entered_otp == session.get("forgot_otp"):
+            return redirect("/reset_password")
+        else:
+            return render_template_string("""
+            <h2 style='color:red;text-align:center;margin-top:100px;'>
+            Wrong OTP
+            </h2>
+
+            <center>
+            <a href="/verify_forgot_otp">Try Again</a>
+            </center>
+            """)
+
+    return render_template_string("""
+    <html>
+
+    <body style="background:black;color:white;text-align:center;margin-top:100px;">
+
+    <h2>Verify OTP</h2>
+
+    <form method="POST">
+
+    <input
+        type="text"
+        name="otp"
+        placeholder="Enter OTP"
+        required>
+
+    <br><br>
+
+    <button type="submit">
+        Verify OTP
+    </button>
+
+    </form>
+
+    </body>
+
+    </html>
+    """)
+#reset password
+@app.route("/reset_password", methods=["GET", "POST"])
+def reset_password():
+
+    if "forgot_email" not in session:
+        return redirect("/forgot_password")
+
+    if request.method == "POST":
+
+        new_password = request.form["password"]
+
+        hashed_password = hashlib.sha256(new_password.encode()).hexdigest()
+
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+
+        c.execute(
+            "UPDATE users SET password=? WHERE email=?",
+            (hashed_password, session["forgot_email"])
+        )
+
+        conn.commit()
+        conn.close()
+
+        session.pop("forgot_email", None)
+        session.pop("forgot_otp", None)
+
+        return redirect("/login")
+
+    return render_template_string("""
+    <html>
+
+    <body style="background:black;color:white;text-align:center;margin-top:100px;">
+
+    <h2>New Password</h2>
+
+    <form method="POST">
+
+    <input
+        type="password"
+        name="password"
+        placeholder="New Password"
+        required>
+
+    <br><br>
+
+    <button type="submit">
+        Update Password
+    </button>
+
+    </form>
+
+    </body>
+
+    </html>
+    """)
 
 # =========================================
 # LOGIN
@@ -3433,6 +3593,10 @@ def login():
             <br>
 
             <a href="/signup">CREATE ACCOUNT</a>
+                                  <br><br>
+            <a href="/forgot_password" style="color:#00ffff;text-decoration:none;">
+               Forgot Password?
+            </a>
 
         </div>
 

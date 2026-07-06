@@ -2,6 +2,7 @@
 #firezone - esport
 #===========================================
 import random
+import time
 from flask import Flask, request, redirect, session, render_template_string
 import sqlite3
 import random
@@ -3206,6 +3207,9 @@ def signup():
         conn.close()
 
         otp = str(random.randint(100000, 999999))
+        import time
+
+        session["otp_time"] = time.time()
          
         sent = send_otp_email(email, otp)
 
@@ -3275,6 +3279,14 @@ def verify_otp():
     if request.method == "POST":
 
         otp = request.form["otp"]
+
+        if time.time() - session.get("otp_time", 0) > 300:
+          return render_template_string("""
+    <center style="margin-top:100px;">
+    <h2 style="color:red;">OTP Expired!</h2>
+    <a href="/signup">Get New OTP</a>
+    </center>
+    """)
 
         if otp != str(data["otp"]):
             return render_template_string(STYLE + """
@@ -3371,6 +3383,41 @@ VALUES(?,?,?,?,?,?,?)
                 <input name="otp" placeholder="Enter OTP" required>
                 <button>VERIFY</button>
             </form>
+                                  <br><br>
+
+            <a href="/resend_otp">
+            Resend OTP
+            </a>
+                                  <p id="timer" style="color:#ff9800;"></p>
+
+<script>
+let timeLeft = 60;
+
+const timer = document.getElementById("timer");
+const resendLink = document.querySelector('a[href="/resend_otp"]');
+
+resendLink.style.pointerEvents = "none";
+resendLink.style.opacity = "0.5";
+
+const interval = setInterval(() => {
+
+    timer.innerHTML = "Resend OTP in " + timeLeft + " sec";
+
+    timeLeft--;
+
+    if (timeLeft < 0) {
+
+        clearInterval(interval);
+
+        timer.innerHTML = "";
+
+        resendLink.style.pointerEvents = "auto";
+        resendLink.style.opacity = "1";
+
+    }
+
+}, 1000);
+</script>
 
             <br>
             <a href="/signup">Change Email / Phone</a>
@@ -3378,6 +3425,28 @@ VALUES(?,?,?,?,?,?,?)
         </div>
     </div>
     """)
+
+@app.route("/resend_otp")
+def resend_otp():
+    last = session.get("last_resend", 0)
+
+    if time.time() - last < 60:
+      return "Please wait 60 seconds before requesting another OTP."
+
+    session["last_resend"] = time.time()
+
+    if "email" not in session:
+        return redirect("/signup")
+
+    otp = str(random.randint(100000,999999))
+
+    session["otp"] = otp
+    session["otp_time"] = time.time()
+
+    send_otp_email(session["email"], otp)
+
+    return redirect("/verify_otp")
+
 #forget password
 @app.route("/forgot_password", methods=["GET", "POST"])
 def forgot_password():
@@ -3401,6 +3470,7 @@ def forgot_password():
 
         session["forgot_email"] = email
         session["forgot_otp"] = otp
+        session["forgot_otp_time"] = time.time()
 
         send_otp_email(email, otp)
 
@@ -3568,6 +3638,7 @@ def forgot_username():
 
         session["forgot_username_email"]=email
         session["forgot_username_otp"]=otp
+        session["forgot_username_otp_time"] = time.time()
 
         send_otp_email(email,otp)
 
@@ -3683,22 +3754,23 @@ def login():
 
     if request.method == "POST":
 
-        username = request.form["username"]
+        login_id = request.form["login_id"]
         password = hashlib.sha256(request.form["password"].encode()).hexdigest()
 
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
         c.execute("""
-            SELECT * FROM users
-            WHERE username=? AND password=? AND IFNULL(banned,0)=0
-        """, (username,password))
+SELECT * FROM users
+WHERE (username=? OR email=?)
+AND password=?
+""", (login_id,login_id, password))
 
         user = c.fetchone()
         conn.close()
 
         if user:
-            session["user"] = username
+            session["user"] = login_id
             return redirect("/")
         else:
             return "❌ Wrong username or password"
@@ -3716,10 +3788,18 @@ def login():
 
             <form method="POST">
 
-                <input name="username" placeholder="Username" required>
+                <input
+    name="login_id"
+    placeholder="Username or Email"
+    required>
 
-                <input name="password" type="password" placeholder="Password" required>
+<input
+    name="password"
+    type="password"
+    placeholder="Password"
+    required>
 
+<button>LOGIN</button>
                 <button>LOGIN</button>
 
             </form>

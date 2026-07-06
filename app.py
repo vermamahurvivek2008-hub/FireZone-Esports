@@ -81,55 +81,62 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.secret_key = "firezone_secret"
+
 def send_otp_email(receiver_email, otp):
     try:
-        import requests
-        import os
-
-        api_key = os.environ.get("RESEND_API_KEY")
-        print("ENV RESEND_API_KEY =", api_key, flush=True)
-        print("ALL ENV KEYS =", [k for k in os.environ.keys() if "RESEND" in k], flush=True)
+        api_key = os.environ.get("BREVO_API_KEY")
 
         if not api_key:
-            print("EMAIL OTP ERROR: RESEND_API_KEY missing", flush=True)
+            print("BREVO_API_KEY missing", flush=True)
             return False
 
-        url = "https://api.resend.com/emails"
+        url = "https://api.brevo.com/v3/smtp/email"
 
         headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json"
         }
 
         data = {
-            "from": "FireZone Esports <onboarding@resend.dev>",
-            "to": [receiver_email],
+            "sender": {
+                "name": "FireZone Esports",
+                "email": "firezoneesport001@gmail.com"
+            },
+            "to": [
+                {
+                    "email": receiver_email
+                }
+            ],
             "subject": "FireZone Esports OTP",
-            "html": f"""
-            <h2>FireZone Esports OTP</h2>
-            <p>Your OTP is:</p>
-            <h1>{otp}</h1>
+            "htmlContent": f"""
+                <h2>FireZone Esports OTP</h2>
+                <p>Your OTP is:</p>
+                <h1>{otp}</h1>
+                <p>This OTP is valid for 10 minutes.</p>
             """
         }
 
-        response = requests.post(url, headers=headers, json=data, timeout=20)
+        response = requests.post(
+            url,
+            headers=headers,
+            json=data,
+            timeout=20
+        )
 
-        print("RESEND STATUS:", response.status_code, response.text, flush=True)
+        print("BREVO STATUS:", response.status_code, response.text, flush=True)
 
-        if response.status_code in [200, 201]:
-            return True
-
-        return False
+        return response.status_code == 201
 
     except Exception as e:
-        print("EMAIL OTP ERROR:", repr(e), flush=True)
+        print("BREVO ERROR:", e, flush=True)
         return False
 @app.route("/check_env")
 def check_env():
-    key = os.environ.get("RESEND_API_KEY")
+    key = os.environ.get("BREVO_API_KEY")
     if key:
-        return "✅ RESEND_API_KEY loaded"
-    return "❌ RESEND_API_KEY missing"
+        return "✅ BREVO_API_KEY loaded"
+    return "❌ BREVO_API_KEY missing"
 
 
 @app.route("/manifest.json")

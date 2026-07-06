@@ -3386,7 +3386,7 @@ def forgot_password():
 
         email = request.form["email"].strip()
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
         c.execute("SELECT * FROM users WHERE email=?", (email,))
@@ -3495,7 +3495,7 @@ def reset_password():
 
         hashed_password = hashlib.sha256(new_password.encode()).hexdigest()
 
-        conn = sqlite3.connect(DB_NAME)
+        conn = sqlite3.connect("database.db")
         c = conn.cursor()
 
         c.execute(

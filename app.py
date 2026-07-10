@@ -3823,7 +3823,6 @@ AND password=?
     </div>
 
     """)
-
 #admin login
 @app.route("/admin", methods=["GET","POST"])
 def admin():
@@ -3834,22 +3833,23 @@ def admin():
             session["admin"] = True
             return redirect("/admin/dashboard")
         else:
-            return "❌ Wrong Admin Credentials"
+         return "❌ Wrong Admin Credentials"
 
     return render_template_string(STYLE + """
-    <div class="overlay">
-        <div class="box">
-            <h1>🔐 ADMIN LOGIN</h1>
+<div class="overlay">
+    <div class="box">
+        <h1>🔐 ADMIN LOGIN</h1>
 
-            <form method="POST">
-                <input name="user" placeholder="Admin Username" required>
-                <input name="pass" type="password" placeholder="Password" required>
-                <button>LOGIN</button>
-            </form>
+        <form method="POST">
+            <input name="user" placeholder="Admin Username" required>
+            <input name="pass" type="password" placeholder="Password" required>
+            <button>LOGIN</button>
+        </form>
 
-        </div>
     </div>
-    """)
+</div>
+""")
+
 #taem route
 #team login
 @app.route("/team_login", methods=["GET","POST"])

@@ -756,6 +756,10 @@ CREATE TABLE IF NOT EXISTS tournament(
     )
     """)
     try:
+      c.execute("ALTER TABLE matches ADD COLUMN commission_paid INTEGER DEFAULT 0")
+    except:
+      pass
+    try:
         c.execute("ALTER TABLE matches ADD COLUMN created_by TEXT")
     except:
         pass
@@ -797,6 +801,10 @@ CREATE TABLE IF NOT EXISTS tournament(
         c.execute("ALTER TABLE result_requests ADD COLUMN total_winners INTEGER DEFAULT 1")
     except:
         pass
+    try:
+      c.execute("ALTER TABLE result_requests ADD COLUMN match_id INTEGER")
+    except:
+      pass
 
     c.execute("""
 CREATE TABLE IF NOT EXISTS withdrawal_requests(
@@ -4856,13 +4864,19 @@ WHERE id=?
     conn.close()
 
     return redirect("/admin/withdrawals")
+
 #admin recharge
 @app.route("/admin/recharges")
 @admin_required
 def admin_recharges():
 
     conn = sqlite3.connect("database.db")
+    import os
+    print("ADMIN DB:", os.path.abspath("database.db"))
+    
     c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM recharge_requests")
+    print("RECHARGE COUNT:", c.fetchone()[0])
 
     c.execute("""
     SELECT id, username, amount, transaction_id, status, date, time
@@ -5386,6 +5400,92 @@ def admin_result_requests():
     </div>
     """, data=data)
 
+def pay_creator_commission(c, match_id):
+
+    c.execute("""
+        SELECT created_by, entry_fee, commission_paid
+        FROM matches
+        WHERE id=?
+    """, (match_id,))
+
+    match = c.fetchone()
+
+    if not match:
+        return
+
+    creator = match[0]
+    entry_fee = float(match[1])
+    commission_paid = match[2] or 0
+
+    if not creator or commission_paid:
+        return
+
+    c.execute("""
+        SELECT COUNT(*)
+        FROM tournament
+        WHERE match_id=?
+    """, (match_id,))
+
+    total_players = c.fetchone()[0]
+
+    total_collection = total_players * entry_fee
+
+    c.execute("""
+        SELECT COALESCE(SUM(reward), 0)
+        FROM result_requests
+        WHERE match_id=? AND status='APPROVED'
+    """, (match_id,))
+
+    total_payout = float(c.fetchone()[0] or 0)
+
+    c.execute("""
+        SELECT COUNT(*)
+        FROM result_requests
+        WHERE match_id=?
+    """, (match_id,))
+
+    total_requests = c.fetchone()[0]
+
+    c.execute("""
+        SELECT COUNT(*)
+        FROM result_requests
+        WHERE match_id=? AND status='APPROVED'
+    """, (match_id,))
+
+    approved_requests = c.fetchone()[0]
+
+    if total_requests == 0 or approved_requests < total_requests:
+        return
+
+    profit = total_collection - total_payout
+
+    if profit <= 0:
+        c.execute("""
+            UPDATE matches
+            SET commission_paid=1
+            WHERE id=?
+        """, (match_id,))
+        return
+
+    commission = round(profit * 0.05, 2)
+
+    c.execute("""
+        INSERT OR IGNORE INTO wallet(username, balance)
+        VALUES(?, 0)
+    """, (creator,))
+
+    c.execute("""
+        UPDATE wallet
+        SET balance = balance + ?
+        WHERE username=?
+    """, (commission, creator))
+
+    c.execute("""
+        UPDATE matches
+        SET commission_paid=1
+        WHERE id=?
+    """, (match_id,))
+
 @app.route("/team/approve_result/<int:id>")
 def team_approve_result(id):
 
@@ -5396,7 +5496,7 @@ def team_approve_result(id):
     c = conn.cursor()
 
     c.execute("""
-    SELECT username, mode, slot, kills, reward
+    SELECT username, mode, slot, kills, reward,match_id
     FROM result_requests
     WHERE id=?
     """, (id,))
@@ -5418,12 +5518,7 @@ def team_approve_result(id):
     WHERE username=?
     """, (r[4], r[0]))
 
-    c.execute("""
-    UPDATE result_requests
-    SET status='APPROVED'
-    WHERE id=?
-    """, (id,))
-
+    
     conn.commit()
     conn.close()
 
@@ -5999,6 +6094,8 @@ def recharge_submit():
         return "❌ Transaction ID required"
 
     conn = sqlite3.connect("database.db")
+    import os
+    print("SUBMIT DB:", os.path.abspath("database.db"))
     c = conn.cursor()
 
     c.execute("""
@@ -6664,9 +6761,10 @@ WHERE id=? """, (match_id,))
 
         c.execute("""
             INSERT INTO result_requests(
-            username, mode, slot, kills, reward, screenshot, status, entry_fee, total_winners
-            )
-            VALUES(?,?,?,?,?,?,?,?,?)
+               username, mode, slot, kills, reward,
+                 screenshot, status, entry_fee, total_winners, match_id
+                  )
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """, (username, mode, slot, kills, reward, filepath, "PENDING", entry_fee, len(usernames)))
         
         conn.commit()
